@@ -18,8 +18,21 @@
 #include <event.h>
 #include <arpa/inet.h>
 #include <msgpack.h>
+#include <errno.h>
 
 #include "telnet.h"
+#include "utils.h"
+
+int setnonblock(int fd){
+    int flags;
+    flags = fcntl(fd, F_GETFL);
+    if (flags < 0)
+        return flags;
+    flags |= O_NONBLOCK;
+    if (fcntl(fd, F_SETFL, flags) < 0)
+        return -1;
+    return 0;
+}
 
 enum expect {
 	EXPECT_NONE,
@@ -55,10 +68,7 @@ enum position {
 	WAIT_DENIAL
 };
 
-#define S_LINE_MAX 256
-
 struct conn_data {
-    bool used;
     int fd;
     enum expect expect; // Local context - like expecting a command specifier as the next character, etc.
     enum command neg_verb; // What was the last verb used for option negotiation
@@ -71,46 +81,30 @@ struct conn_data {
     char *line_base, *line;
 };
 
-int setnonblock(int fd){
-    int flags;
-    flags = fcntl(fd, F_GETFL);
-    if (flags < 0)
-        return flags;
-    flags |= O_NONBLOCK;
-    if (fcntl(fd, F_SETFL, flags) < 0)
-        return -1;
-    return 0;
-}
+bool conn_data_used[MAX_CONN_COUNT]; //no need to initialize explicitly, initialized to zero/false (global variables always are)
+struct conn_data conn_data_pool[MAX_CONN_COUNT];
 
-const size_t denial_timeout = 1;
-const size_t max_attempts = 3;
-
-#define CONN_COUNT 100
-
-struct conn_data conn_data_pool[CONN_COUNT];
-
-void conn_data_reset(){
-    for (unsigned i=0; i<CONN_COUNT; i++) conn_data_pool[i].used=false;
-}
-
-struct conn_data * alloc_conn_data(){
-    for (unsigned i=0; i<CONN_COUNT; i++) {
-        if(!conn_data_pool[i].used) {
-            conn_data_pool[i].used=true;
+static struct conn_data * alloc_conn_data(){
+    for (unsigned i=0; i<MAX_CONN_COUNT; i++) {
+        if(!conn_data_used[i]) {
+            conn_data_used[i]=true;
             return &conn_data_pool[i];
         }
     }
+    DEBUG_PRINT("no free struct conn_data - connection limit reached\n");
     return NULL;
 }
 
-void free_conn_data(struct conn_data * conn){
+static void free_conn_data(struct conn_data * conn){
     if (!conn) return;
-    conn->used=false;
+    unsigned idx=conn-&conn_data_pool[0];
+    assert(idx<=MAX_CONN_COUNT);
+    conn_data_used[idx]=false;
 }
 
 int report_fd;
 
-void send_string(char * str){
+static void send_string(char * str){
     msgpack_sbuffer sbuf;
     msgpack_sbuffer_init(&sbuf);
     msgpack_packer pk;
@@ -118,16 +112,17 @@ void send_string(char * str){
     msgpack_pack_str(&pk, strlen(str));
     msgpack_pack_str_body(&pk, str, strlen(str));
     int rc = write(report_fd, sbuf.data, sbuf.size);
+    msgpack_sbuffer_destroy(&sbuf);
 }
 
-void report_connected(const char * ipaddr_str){
+static void report_connected(const char * ipaddr_str){
     char buffer[1024];
     int bytes=snprintf(buffer, sizeof(buffer), "%s connected", ipaddr_str);
     buffer[bytes]=0;
     send_string(buffer);
 }
 
-void report_login_attempt(const char * ipaddr_str, char * username, char * password){
+static void report_login_attempt(const char * ipaddr_str, char * username, char * password){
     char buffer[1024];
     int bytes=snprintf(buffer, sizeof(buffer), "%s tried login %s:%s", ipaddr_str, username, password);
     buffer[bytes]=0;
@@ -162,11 +157,10 @@ static void do_close(struct conn_data *conn) {
     event_del(&conn->read_ev);
     close(conn->fd);
     free_conn_data(conn);
-    //free(conn);
 }
 
 static bool protocol_error(struct conn_data *conn, const char *message) {
-// 	ulog(LLOG_DEBUG, "Telnet protocol error %s\n", message);
+    DEBUG_PRINT("Telnet protocol error %s\n", message);
 	size_t len = strlen(message);
     uint8_t *message_eol = (uint8_t *)malloc(len+4); // '\r', '\n', IAC, GA
 	memcpy(message_eol, message, len);
@@ -188,7 +182,7 @@ static void send_denial(int fd, short event, void *data) {
 		do_close(conn);
 		return;
 	}
-	if (++ conn->attempts == max_attempts) {
+	if (++ conn->attempts == MAX_ATTEMPTS) {
 		do_close(conn);
 		return;
 	}
@@ -213,7 +207,7 @@ static bool process_line(struct conn_data *conn) {
             evtimer_set(&conn->denial_timeout_ev, send_denial, conn);
 			conn->position = WAIT_DENIAL;
             struct timeval tv;
-            tv.tv_sec = denial_timeout;
+            tv.tv_sec = DENIAL_TIMEOUT;
             tv.tv_usec = 0;
             evtimer_add(&conn->denial_timeout_ev, &tv);
 			break;
@@ -313,7 +307,7 @@ static bool char_handle(struct conn_data *conn, uint8_t ch) {
 	return true;
 }
 
-void sockaddr_to_string(struct sockaddr_storage * connection_addr, char * str){
+static void sockaddr_to_string(struct sockaddr_storage * connection_addr, char * str){
     //str is assumed to be at least INET6_ADDRSTRLEN long
     struct in6_addr *v6;
     if (connection_addr->ss_family == AF_INET6) {
@@ -326,17 +320,7 @@ void sockaddr_to_string(struct sockaddr_storage * connection_addr, char * str){
         inet_ntop(AF_INET, &(((struct sockaddr_in *)connection_addr)->sin_addr), str, INET_ADDRSTRLEN);
 }
 
-void reset_conn_data(struct conn_data * conn, int connection_fd, struct sockaddr_storage * connection_addr){
-    memset(conn,0,sizeof(conn));
-    conn->expect = EXPECT_NONE;
-    conn->position = WANT_LOGIN;
-    conn->line = conn->line_base = conn->username;
-    conn->fd = connection_fd;
-    conn->attempts = 0;
-    sockaddr_to_string(connection_addr, conn->ipaddr_str);
-}
-
-void on_recv(int fd, short ev, void *arg) {
+static void on_recv(int fd, short ev, void *arg) {
     struct conn_data* conn = (struct conn_data*)arg;
     const size_t block = 1024;
     char buffer[block];
@@ -344,10 +328,10 @@ void on_recv(int fd, short ev, void *arg) {
     switch (amount) {
         case -1: // Error
             if (errno == EWOULDBLOCK || errno == EAGAIN) return;
-//             ulog(LLOG_DEBUG, "Error on telnet connection %p on tag %p with fd %d: %s\n", (void *)conn, (void *)tag, conn->fd, strerror(errno));
+            DEBUG_PRINT("Error on telnet connection %d: %s\n", fd, strerror(errno));
             // No break - fall through
         case 0: // Close
-//             ulog(LLOG_DEBUG, "Closed telnet connection %p/%p/%d\n", (void *)conn, (void *)tag, conn->fd);
+            DEBUG_PRINT("Closed telnet connection %d\n", fd);
             do_close(conn);
             return;
         default:
@@ -361,7 +345,17 @@ void on_recv(int fd, short ev, void *arg) {
         }
 }
 
-void on_accept(int listen_fd, short ev, void *arg){
+static void setup_conn_data(struct conn_data * conn, int connection_fd, struct sockaddr_storage * connection_addr){
+    memset(conn,0,sizeof(conn));
+    conn->expect = EXPECT_NONE;
+    conn->position = WANT_LOGIN;
+    conn->line = conn->line_base = conn->username;
+    conn->fd = connection_fd;
+    conn->attempts = 0;
+    sockaddr_to_string(connection_addr, conn->ipaddr_str);
+}
+
+static void on_accept(int listen_fd, short ev, void *arg){
     int connection_fd;
     struct sockaddr_storage connection_addr;
     socklen_t connection_addr_len=sizeof(connection_addr);
@@ -371,13 +365,13 @@ void on_accept(int listen_fd, short ev, void *arg){
         close(connection_fd);
         return;
     }
-    //struct conn_data * conn = (struct conn_data*)malloc(sizeof(struct conn_data));
     struct conn_data * conn = alloc_conn_data();
     if (!conn) {
         close(connection_fd);
         return;
     }
-    reset_conn_data(conn, connection_fd, &connection_addr);
+    DEBUG_PRINT("Accepted telnet connection %d\n", connection_fd);
+    setup_conn_data(conn, connection_fd, &connection_addr);
     event_set(&conn->read_ev, connection_fd, EV_READ|EV_PERSIST, on_recv, conn);
     event_add(&conn->read_ev, NULL);
     if (!ask_for_login(conn)) {
@@ -387,20 +381,19 @@ void on_accept(int listen_fd, short ev, void *arg){
     report_connected(conn->ipaddr_str);
 }
 
-static void signal_cb(evutil_socket_t sig, short events, void *user_data){
-    printf("Caught an interrupt signal.\n");
+static void sigint_cb(evutil_socket_t sig, short events, void *user_data){
+    DEBUG_PRINT("Caught interrupt signal\n");
     event_loopbreak();
 }
 
 void handle_telnet(int listen_fd, int reporting_fd){
     report_fd = reporting_fd;
-    conn_data_reset();
     event_init();
     struct event ev_accept;
     event_set(&ev_accept, listen_fd, EV_READ|EV_PERSIST, on_accept, NULL);
     event_add(&ev_accept, NULL);
     struct event signal_event;
-    evsignal_set(&signal_event, SIGINT, signal_cb, NULL);
+    evsignal_set(&signal_event, SIGINT, sigint_cb, NULL);
     event_add(&signal_event, NULL);
     event_dispatch();
 }

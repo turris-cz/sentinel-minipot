@@ -18,7 +18,9 @@
 #include <netinet/in.h>
 #include <event.h>
 #include <msgpack.h>
+#include <errno.h>
 
+#include "utils.h"
 #include "zmq_log.h"
 #include "telnet.h"
 
@@ -28,17 +30,7 @@
 static void SIGCHLD_handler(int sig){
     int status;
     pid_t pid;
-    while ((pid = waitpid(-1, &status, WNOHANG)) > 0)
-        printf("Process %d has exited with code %d.\n", pid, WEXITSTATUS(status));
-}
-
-static int setnonblock(int fd){
-    int flags;
-    flags = fcntl(fd, F_GETFL);
-    if (flags < 0) return flags;
-    flags |= O_NONBLOCK;
-    if (fcntl(fd, F_SETFL, flags) < 0) return -1;
-    return 0;
+    while ((pid = waitpid(-1, &status, WNOHANG)) > 0) fprintf(stderr, "Process %d has exited with code %d.\n", pid, WEXITSTATUS(status));
 }
 
 
@@ -93,26 +85,25 @@ void pipe_read(int fd, short ev, void *arg){
     switch(nbytes){
 	case -1:
             if (errno == EWOULDBLOCK || errno == EAGAIN) return;
-	    //fprintf(stderr, "error\n");
-	    //TBD
-            // No break - fall through
-        case 0: // Close
-	    //fprintf(stderr, "close\n");
-            return;
+            fprintf(stderr, "error receiving from pipe\n");
+            exit(1);
+        case 0:
+            fprintf(stderr, "closed pipe\n"); 
+            exit(1); //this should not happen
         default:
             break;
     }
     char * buf_copy=(char*)malloc(nbytes);
     memcpy(buf_copy, buffer, nbytes);
     log_add(buf_copy, nbytes);
-    printf("%lu bytes from honeypot subprocess; ## %.*s\n", nbytes, (unsigned)nbytes, buffer);
+    DEBUG_PRINT("%lu bytes from honeypot subprocess; ## %.*s\n", nbytes, (unsigned)nbytes, buffer);
 }
 
 static void send_waiting_messages_timer(int fd, short event, void *data){
     log_send_waiting();
 }
 
-static void signal_cb(evutil_socket_t sig, short events, void *user_data){
+static void sigint_cb(evutil_socket_t sig, short events, void *user_data){
     event_loopbreak();
 }
 
@@ -169,7 +160,7 @@ int main(int argc, char *argv[]){
     event_set(&ev, pipes[0], EV_READ|EV_PERSIST, pipe_read, NULL);
     event_add(&ev, NULL);
     struct event signal_event;
-    evsignal_set(&signal_event, SIGINT, signal_cb, NULL);
+    evsignal_set(&signal_event, SIGINT, sigint_cb, NULL);
     event_add(&signal_event, NULL);
     struct event timer_event;
     event_set(&timer_event, 0, EV_PERSIST, send_waiting_messages_timer, NULL);
