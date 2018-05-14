@@ -96,29 +96,38 @@ static void free_conn_data(struct conn_data * conn){
 
 int report_fd;
 
-static void send_string(char * str){
+#define PACK_STR(packer, str) {msgpack_pack_str(packer, strlen(str)); msgpack_pack_str_body(packer, str, strlen(str));}
+
+static void report_connected(const char * ipaddr_str){
     msgpack_sbuffer sbuf;
     msgpack_sbuffer_init(&sbuf);
     msgpack_packer pk;
     msgpack_packer_init(&pk, &sbuf, msgpack_sbuffer_write);
-    msgpack_pack_str(&pk, strlen(str));
-    msgpack_pack_str_body(&pk, str, strlen(str));
+    msgpack_pack_map(&pk, 2);
+    PACK_STR(&pk, "state");
+    PACK_STR(&pk, "connected");
+    PACK_STR(&pk, "ip");
+    PACK_STR(&pk, ipaddr_str);
     write(report_fd, sbuf.data, sbuf.size);
     msgpack_sbuffer_destroy(&sbuf);
 }
 
-static void report_connected(const char * ipaddr_str){
-    char buffer[1024];
-    int bytes=snprintf(buffer, sizeof(buffer), "%s connected", ipaddr_str);
-    buffer[bytes]=0;
-    send_string(buffer);
-}
-
 static void report_login_attempt(const char * ipaddr_str, char * username, char * password){
-    char buffer[1024];
-    int bytes=snprintf(buffer, sizeof(buffer), "%s tried login %s:%s", ipaddr_str, username, password);
-    buffer[bytes]=0;
-    send_string(buffer);
+    msgpack_sbuffer sbuf;
+    msgpack_sbuffer_init(&sbuf);
+    msgpack_packer pk;
+    msgpack_packer_init(&pk, &sbuf, msgpack_sbuffer_write);
+    msgpack_pack_map(&pk, 4);
+    PACK_STR(&pk, "state");
+    PACK_STR(&pk, "login_attempt");
+    PACK_STR(&pk, "ip");
+    PACK_STR(&pk, ipaddr_str);
+    PACK_STR(&pk, "username");
+    PACK_STR(&pk, username);
+    PACK_STR(&pk, "password");
+    PACK_STR(&pk, password);
+    write(report_fd, sbuf.data, sbuf.size);
+    msgpack_sbuffer_destroy(&sbuf);
 }
 
 static bool send_all(struct conn_data *conn, const uint8_t *data, size_t amount) {
