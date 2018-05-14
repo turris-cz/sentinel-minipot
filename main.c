@@ -1,20 +1,12 @@
 #include <stdlib.h>
 #include <stdio.h>
 #include <string.h>
-#include <ctype.h>
 #include <unistd.h>
 #include <signal.h>
 #include <pwd.h>
-#include <grp.h>
-#include <getopt.h>
-#include <fcntl.h>
-#include <sys/types.h>
 #include <sys/wait.h>
 #include <sys/socket.h>
-#include <sys/time.h>
 #include <sys/prctl.h>
-#include <sys/stat.h>
-#include <sys/resource.h>
 #include <netinet/in.h>
 #include <event.h>
 #include <msgpack.h>
@@ -40,8 +32,6 @@ static void SIGCHLD_handler(int sig){
 static void drop_privileges()
 {
     struct passwd *user;
-    struct rlimit limit;
-    
     if (!geteuid()) {
         user = getpwnam("nobody");
         if (!user) {
@@ -108,7 +98,7 @@ static void sigint_cb(evutil_socket_t sig, short events, void *user_data){
 }
 
 int main(int argc, char *argv[]){
-    int listen_fd, connection_fd, flag;
+    int listen_fd, flag;
     struct sockaddr_in6 listen_addr;
     pid_t child;
     msgpack_sbuffer sbuf;
@@ -170,4 +160,5 @@ int main(int argc, char *argv[]){
     evtimer_add(&timer_event, &tv);
     event_dispatch();
     log_exit();
+    return 0;
 }
