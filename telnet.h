@@ -8,6 +8,7 @@
 
 int setnonblock(int fd);
 
+void init_telnet(unsigned port);
 void handle_telnet(int listen_fd, int reporting_fd);
 
 #endif /*__INCLUDE_TELNET_H__*/

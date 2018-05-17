@@ -1,3 +1,7 @@
+#ifndef _DEFAULT_SOURCE
+#define _DEFAULT_SOURCE 1
+#endif
+
 #include <stdlib.h>
 #include <stdio.h>
 #include <string.h>
@@ -95,6 +99,7 @@ static void free_conn_data(struct conn_data * conn){
 }
 
 int report_fd;
+struct event_base* ev_base;
 
 #define PACK_STR(packer, str) {msgpack_pack_str(packer, strlen(str)); msgpack_pack_str_body(packer, str, strlen(str));}
 
@@ -104,8 +109,10 @@ static void report_connected(const char * ipaddr_str){
     msgpack_packer pk;
     msgpack_packer_init(&pk, &sbuf, msgpack_sbuffer_write);
     msgpack_pack_map(&pk, 2);
-    PACK_STR(&pk, "state");
-    PACK_STR(&pk, "connected");
+    PACK_STR(&pk, "ts");
+    msgpack_pack_int(&pk, time(NULL));
+    PACK_STR(&pk, "action");
+    PACK_STR(&pk, "connect");
     PACK_STR(&pk, "ip");
     PACK_STR(&pk, ipaddr_str);
     write(report_fd, sbuf.data, sbuf.size);
@@ -118,8 +125,10 @@ static void report_login_attempt(const char * ipaddr_str, char * username, char 
     msgpack_packer pk;
     msgpack_packer_init(&pk, &sbuf, msgpack_sbuffer_write);
     msgpack_pack_map(&pk, 4);
-    PACK_STR(&pk, "state");
-    PACK_STR(&pk, "login_attempt");
+    PACK_STR(&pk, "action");
+    PACK_STR(&pk, "login");
+    PACK_STR(&pk, "ts");
+    msgpack_pack_int(&pk, time(NULL));
     PACK_STR(&pk, "ip");
     PACK_STR(&pk, ipaddr_str);
     PACK_STR(&pk, "username");
@@ -130,7 +139,7 @@ static void report_login_attempt(const char * ipaddr_str, char * username, char 
     msgpack_sbuffer_destroy(&sbuf);
 }
 
-static bool send_all(struct conn_data *conn, const uint8_t *data, size_t amount) {
+static bool send_all(struct conn_data *conn, const char *data, size_t amount) {
     while (amount) {
         ssize_t sent = send(conn->fd, data, amount, MSG_NOSIGNAL);
         if (sent == -1) {
@@ -162,15 +171,8 @@ static void do_close(struct conn_data *conn) {
 
 static bool protocol_error(struct conn_data *conn, const char *message) {
     DEBUG_PRINT("Telnet protocol error %s\n", message);
-    size_t len = strlen(message);
-    uint8_t *message_eol = (uint8_t *)malloc(len+4); // '\r', '\n', IAC, GA
-    memcpy(message_eol, message, len);
-    message_eol[len] = '\r';
-    message_eol[len+1] = '\n';
-    message_eol[len+2] = CMD_IAC;
-    message_eol[len+3] = CMD_GA;
-    send_all(conn, message_eol, len + 4);
-    free(message_eol);
+    const char *msg="Protocol error\r\n\xff\xf9";
+    send_all(conn, msg, strlen(msg));
     return false;
 }
 
@@ -179,7 +181,7 @@ static void send_denial(int fd, short event, void *data) {
     conn->position = WANT_LOGIN;
     conn->line = conn->line_base = conn->username;
     const char *wrong = "Login incorrect\n";
-    if (!send_all(conn, (const uint8_t *)wrong, strlen(wrong))) {
+    if (!send_all(conn, wrong, strlen(wrong))) {
         do_close(conn);
         return;
     }
@@ -205,7 +207,7 @@ static bool process_line(struct conn_data *conn) {
             *conn->line = '\0';
             report_login_attempt(conn->ipaddr_str, conn->username, conn->password);
             conn->line = conn->line_base = NULL;
-            evtimer_set(&conn->denial_timeout_ev, send_denial, conn);
+            evtimer_assign(&conn->denial_timeout_ev, ev_base, send_denial, conn);
             conn->position = WAIT_DENIAL;
             struct timeval tv;
             tv.tv_sec = DENIAL_TIMEOUT;
@@ -265,7 +267,7 @@ static bool char_handle(struct conn_data *conn, uint8_t ch) {
             if (conn->neg_verb == CMD_WILL || conn->neg_verb == CMD_DO) {
                 // Refuse the option
                 uint8_t cmd = (conn->neg_verb ^ (CMD_WILL ^ CMD_DO)) + 1; // WILL->DON'T, DO->WON'T
-                uint8_t message[3] = { CMD_IAC, cmd, ch };
+                char message[3] = { CMD_IAC, cmd, ch };
                 if (!send_all(conn, message, sizeof message))
                     return false;
             } // else - it's off, so this is OK, no reaction
@@ -339,7 +341,7 @@ static void on_recv(int fd, short ev, void *arg) {
         default:
             break;
     }
-    const uint8_t *buf_ptr = buffer;
+    const char *buf_ptr = buffer;
     for (ssize_t i = 0; i < amount; i ++)
         if (!char_handle(conn, buf_ptr[i])) {
             do_close(conn);
@@ -348,7 +350,7 @@ static void on_recv(int fd, short ev, void *arg) {
 }
 
 static void setup_conn_data(struct conn_data * conn, int connection_fd, struct sockaddr_storage * connection_addr){
-    memset(conn,0,sizeof(conn));
+    memset(conn,0,sizeof(*conn));
     conn->expect = EXPECT_NONE;
     conn->position = WANT_LOGIN;
     conn->line = conn->line_base = conn->username;
@@ -374,29 +376,25 @@ static void on_accept(int listen_fd, short ev, void *arg){
     }
     DEBUG_PRINT("Accepted telnet connection %d\n", connection_fd);
     setup_conn_data(conn, connection_fd, &connection_addr);
-    event_set(&conn->read_ev, connection_fd, EV_READ|EV_PERSIST, on_recv, conn);
+    event_assign(&conn->read_ev, ev_base, connection_fd, EV_READ|EV_PERSIST, on_recv, conn);
     event_add(&conn->read_ev, NULL);
     if (!ask_for_login(conn)) {
         do_close(conn);
         return;
     }
     report_connected(conn->ipaddr_str);
-    DEBUG_PRINT("Accepted telnet connection %d 2\n", connection_fd);
 }
 
-static void sigint_cb(evutil_socket_t sig, short events, void *user_data){
-    DEBUG_PRINT("Caught interrupt signal\n");
-    event_loopbreak();
+static void SIGINT_handler(evutil_socket_t sig, short events, void *user_data){
+    event_base_loopbreak(ev_base);
 }
 
 void handle_telnet(int listen_fd, int reporting_fd){
+    ev_base = event_base_new();
     report_fd = reporting_fd;
-    event_init();
-    struct event ev_accept;
-    event_set(&ev_accept, listen_fd, EV_READ|EV_PERSIST, on_accept, NULL);
-    event_add(&ev_accept, NULL);
-    struct event signal_event;
-    evsignal_set(&signal_event, SIGINT, sigint_cb, NULL);
-    event_add(&signal_event, NULL);
-    event_dispatch();
+    struct event * ev_accept = event_new(ev_base, listen_fd, EV_READ|EV_PERSIST, on_accept, NULL);
+    event_add(ev_accept, NULL);
+    struct event * signal_event=event_new(ev_base, SIGINT, EV_SIGNAL|EV_PERSIST, SIGINT_handler, NULL);
+    event_add(signal_event, NULL);
+    event_base_dispatch(ev_base);
 }

@@ -1,3 +1,4 @@
+#include <getopt.h>
 #include <stdlib.h>
 #include <stdio.h>
 #include <string.h>
@@ -29,11 +30,11 @@ static void SIGCHLD_handler(int sig){
 /*
  * Drop root, chroot and drop privs.
  */
-static void drop_privileges()
+static void drop_privileges(const char * username)
 {
     struct passwd *user;
     if (!geteuid()) {
-        user = getpwnam("nobody");
+        user = getpwnam(username);
         if (!user) {
             perror("getpwnam");
             exit(EXIT_FAILURE);
@@ -70,46 +71,38 @@ static void drop_privileges()
 }
 
 void pipe_read(int fd, short ev, void *arg){
-    char buffer[1024];
-    ssize_t nbytes = read(fd, buffer, 1024);
+    char buffer[MSG_MAX_SIZE];
+    //4096 is PIPE_BUF, meaning that messages up to 4096 are atomic and thus read by one read()
+    //if we need larger messages, the receiving logic must be changed (possibly more calls to read)
+    assert(MSG_MAX_SIZE<=4096 && "for messages larger than 4096, pipe_read must be changed");
+    ssize_t nbytes = read(fd, buffer, MSG_MAX_SIZE);
     switch(nbytes){
 	case -1:
             if (errno == EWOULDBLOCK || errno == EAGAIN) return;
             fprintf(stderr, "error receiving from pipe\n");
-            exit(1);
+            return;
         case 0:
-            fprintf(stderr, "closed pipe\n"); 
-            exit(1); //this should not happen
+            fprintf(stderr, "closed pipe from child\n");
+            return;
         default:
             break;
     }
-    char * buf_copy=(char*)malloc(nbytes);
-    memcpy(buf_copy, buffer, nbytes);
-    log_add(buf_copy, nbytes);
-    DEBUG_PRINT("%lu bytes from honeypot subprocess; ## %.*s\n", nbytes, (unsigned)nbytes, buffer);
+    log_add(buffer, nbytes);
 }
 
-static void send_waiting_messages_timer(int fd, short event, void *data){
-    log_send_waiting();
+static void SIGINT_handler(evutil_socket_t sig, short events, void *user_data){
+    DEBUG_PRINT("Caught SIGINT, exiting...\n");
+    event_base_loopbreak((struct event_base*)user_data);
 }
 
-static void sigint_cb(evutil_socket_t sig, short events, void *user_data){
-    event_loopbreak();
-}
-
-int main(int argc, char *argv[]){
-    int listen_fd, flag;
+pid_t start_telnet(struct event_base* ev_base, unsigned port, const char * user){
+    int listen_fd;
+    int flag;
     struct sockaddr_in6 listen_addr;
-    pid_t child;
-    msgpack_sbuffer sbuf;
-    msgpack_sbuffer_init(&sbuf);
-    msgpack_packer pk;
-    msgpack_packer_init(&pk, &sbuf, msgpack_sbuffer_write);
-    close(STDIN_FILENO);
     listen_fd = socket(AF_INET6, SOCK_STREAM, 0);
     if (listen_fd < 0) {
         perror("socket");
-        return EXIT_FAILURE;
+        exit(1);
     }
     flag = 1;
     setsockopt(listen_fd, SOL_SOCKET, SO_REUSEADDR, &flag, sizeof(flag));
@@ -118,47 +111,86 @@ int main(int argc, char *argv[]){
     memset(&listen_addr, 0, sizeof(listen_addr));
     listen_addr.sin6_family = AF_INET6;
     listen_addr.sin6_addr = in6addr_any;
-    listen_addr.sin6_port = htons(23);
+    listen_addr.sin6_port = htons(port);
     if (bind(listen_fd, (struct sockaddr *)&listen_addr, sizeof(listen_addr)) < 0) {
         perror("bind");
-        return EXIT_FAILURE;
+        exit(1);
     }
     if (listen(listen_fd, 5) < 0) {
         perror("listen");
-        return EXIT_FAILURE;
+        exit(1);
     }
+    pid_t child;
     int pipes[2];
-    if  (pipe(pipes)<0)  { perror(" Main error with pipes \n"); exit(2); }
-    prctl(PR_SET_NAME, "honeypot_main");
-    signal(SIGCHLD, SIGCHLD_handler);
+    if  (pipe(pipes)<0)  {
+        perror("pipe");
+        exit(1); 
+    }
     child = fork();
-    if (!child){
-        drop_privileges();
+    if (child==-1){
+        perror("fork");
+        exit(1);
+    }
+    if (child==0){
+        drop_privileges(user);
         if (getppid() == 1) kill(getpid(), SIGINT);
-        prctl(PR_SET_PDEATHSIG, SIGINT);
+        prctl(PR_SET_PDEATHSIG, SIGKILL);
         close(pipes[0]);
-        prctl(PR_SET_NAME, "honeypot_telnet");
         handle_telnet(listen_fd, pipes[1]);
         exit(0);
     }
-    close(listen_fd);
     close(pipes[1]);
-    log_init("ipc:///tmp/sentinel_pull.sock", "sentinel/collect/flows");
-    event_init();
-    struct event ev;
+    close(listen_fd);
     setnonblock(pipes[0]);
-    event_set(&ev, pipes[0], EV_READ|EV_PERSIST, pipe_read, NULL);
-    event_add(&ev, NULL);
-    struct event signal_event;
-    evsignal_set(&signal_event, SIGINT, sigint_cb, NULL);
-    event_add(&signal_event, NULL);
-    struct event timer_event;
-    event_set(&timer_event, 0, EV_PERSIST, send_waiting_messages_timer, NULL);
-    struct timeval tv;
-    tv.tv_sec = MAX_WAIT_TIME;
-    tv.tv_usec = 0;
-    evtimer_add(&timer_event, &tv);
-    event_dispatch();
+    struct event * ev = event_new(ev_base, pipes[0], EV_READ|EV_PERSIST, pipe_read, NULL);
+    event_add(ev, NULL);
+    return child;
+}
+
+int main(int argc, char *argv[]){
+    struct event_base* ev_base = event_base_new();
+    unsigned telnet_port = 23;
+    const char * local_socket = "ipc:///tmp/sentinel_pull.sock";
+    const char * topic = "sentinel/collect/flows";
+    const char * user = "nobody";
+    char opt;
+    int option_index = 0;
+    static struct option long_options[] = {
+        {"telnet", required_argument, 0, 'T'},
+        {"local_socket", required_argument, 0, 's'},
+        {"topic", required_argument, 0, 't'},
+        {"user", required_argument, 0, 'u'},
+        {0, 0, 0, 0}
+    };
+    while ((opt = getopt_long(argc, argv, "s:t:u:T:", long_options, &option_index)) != (char)-1) {
+        switch (opt) {
+            case 'T':
+                telnet_port = atoi(optarg);
+                break;
+            case 's':
+                local_socket = optarg;
+                break;
+            case 't':
+                topic = optarg;
+                break;
+            case 'u':
+                user = optarg;
+                break;
+            default: /* '?' */
+                fprintf(stderr, "Usage: %s [-T telnet_port] [-s socket] [-t topic] [-u user]\n", argv[0]);
+                exit(EXIT_FAILURE);
+        }
+    }
+    close(STDIN_FILENO);
+    signal(SIGCHLD, SIGCHLD_handler);
+    int telnet_proc_pid = start_telnet(ev_base, telnet_port, user);
+    log_init(ev_base, local_socket, topic);
+    struct event * signal_event=event_new(ev_base, SIGINT, EV_SIGNAL|EV_PERSIST, SIGINT_handler, ev_base);
+    event_add(signal_event, NULL);
+    //run event loop
+    event_base_dispatch(ev_base);
+    //interrupted, cleaning up
+    kill(telnet_proc_pid, SIGINT);
     log_exit();
     return 0;
 }
