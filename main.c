@@ -185,8 +185,10 @@ int main(int argc, char *argv[]){
     signal(SIGCHLD, SIGCHLD_handler);
     int telnet_proc_pid = start_telnet(ev_base, telnet_port, user);
     log_init(ev_base, local_socket, topic);
-    struct event * signal_event=event_new(ev_base, SIGINT, EV_SIGNAL|EV_PERSIST, SIGINT_handler, ev_base);
-    event_add(signal_event, NULL);
+    struct event * sigint_event=event_new(ev_base, SIGINT, EV_SIGNAL|EV_PERSIST, SIGINT_handler, ev_base);
+    event_add(sigint_event, NULL);
+    struct event * sigterm_event=event_new(ev_base, SIGTERM, EV_SIGNAL|EV_PERSIST, SIGINT_handler, ev_base);
+    event_add(sigterm_event, NULL);
     //run event loop
     event_base_dispatch(ev_base);
     //interrupted, cleaning up
