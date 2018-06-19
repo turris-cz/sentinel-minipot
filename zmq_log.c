@@ -6,11 +6,10 @@
 #include "zmq_log.h"
 
 
-struct msg_t{
+struct {
     char data[MSG_MAX_SIZE+1];
     unsigned len;
-};
-struct msg_t messages[MAX_WAITING_MESSAGES];
+} messages[MAX_WAITING_MESSAGES];
 int messages_waiting;
 zsock_t *proxy_sock;
 const char * topic;
@@ -53,7 +52,7 @@ void log_send_waiting() {
     msgpack_pack_array(&pk, messages_waiting);  // pack array header
     for (unsigned i = 0; i < messages_waiting; i++) {
         // normally, one would expect msgpack_pack_bin(&pk, messages[i].len) here - to append header for the binary
-        // but we don't want that here - Data received already have its header. Doing that would result in corrupt msgpack
+        // but we don't want that here - Data received already have its header. Doing that would result in corrupt msgpack.
         msgpack_pack_bin_body(&pk, messages[i].data, messages[i].len);  // just pack binary, without header
     }
     messages_waiting = 0;

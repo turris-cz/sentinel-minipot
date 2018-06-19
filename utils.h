@@ -1,9 +1,11 @@
 #ifndef __UTILS_H__
 #define __UTILS_H__
 
-#define DEBUG 1
-
-#define DEBUG_PRINT(fmt, ...) do { if (DEBUG) fprintf(stderr, fmt, ##__VA_ARGS__); } while (0)
+#ifdef DEBUG
+#define DEBUG_PRINT(...) fprintf(stderr, __VA_ARGS__)
+#else
+#define DEBUG_PRINT(...) do { } while (0);
+#endif
 
 int setnonblock(int fd);
 

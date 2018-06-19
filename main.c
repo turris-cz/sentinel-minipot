@@ -24,53 +24,37 @@
 static void SIGCHLD_handler(int sig) {
     int status;
     pid_t pid;
-    while ((pid = waitpid(-1, &status, WNOHANG)) > 0) fprintf(stderr, "Process %d has exited with code %d.\n", pid, WEXITSTATUS(status));
+    while ((pid = waitpid(-1, &status, WNOHANG)) > 0)
+        fprintf(stderr, "Process %d has exited with code %d.\n", pid, WEXITSTATUS(status));
 }
+
+#define CHECK_ERR(CMD, NAME) do { \
+    if (CMD) { \
+        perror(NAME); \
+        exit(EXIT_FAILURE); \
+    }} while (0)
 
 static void drop_privileges(const char * username) {
     struct passwd *user;
     if (!geteuid()) {
-        user = getpwnam(username);
-        if (!user) {
-            perror("getpwnam");
-            exit(EXIT_FAILURE);
-        }
-        if (chroot("/var/empty")) {
-            perror("chroot");
-            exit(EXIT_FAILURE);
-        }
-        if (chdir("/")) {
-            perror("chdir");
-            exit(EXIT_FAILURE);
-        }
-        if (setresgid(user->pw_gid, user->pw_gid, user->pw_gid)) {
-            perror("setresgid");
-            exit(EXIT_FAILURE);
-        }
-        if (setgroups(1, &user->pw_gid)) {
-            perror("setgroups");
-            exit(EXIT_FAILURE);
-        }
-        if (setresuid(user->pw_uid, user->pw_uid, user->pw_uid)) {
-            perror("setresuid");
-            exit(EXIT_FAILURE);
-        }
-        if (!geteuid() || !getegid()) {
-            fprintf(stderr, "Mysteriously still running as root... Goodbye.\n");
-            exit(EXIT_FAILURE);
-        }
+        CHECK_ERR(!(user = getpwnam(username)), "getpwnam");
+        CHECK_ERR(chroot("/var/empty"), "chroot");
+        CHECK_ERR(chdir("/"), "chdir");
+        CHECK_ERR(setresgid(user->pw_gid, user->pw_gid, user->pw_gid), "setresgid");
+        CHECK_ERR(setgroups(1, &user->pw_gid), "setgroups");
+        CHECK_ERR(setresuid(user->pw_uid, user->pw_uid, user->pw_uid), "setresgid");
+        CHECK_ERR((geteuid() == 0 || getegid() == 0), "can't drop root privileges");
     }
-    if (prctl(PR_SET_NO_NEW_PRIVS, 1, 0, 0, 0)) {
-        perror("prctl(NO_NEW_PRIVS");
-        exit(EXIT_FAILURE);
-    }
+    CHECK_ERR(prctl(PR_SET_NO_NEW_PRIVS, 1, 0, 0, 0), "prctl(NO_NEW_PRIVS)");
 }
 
+// 4096 is PIPE_BUF, meaning that messages up to 4096 are atomic and thus read by one read()
+// if we need larger messages, the receiving logic must be changed (possibly more calls to read)
+#if MSG_MAX_SIZE > PIPE_BUF
+#error "pipe_read won't work with message size higher then PIPE_BUF"
+#endif
 void pipe_read(int fd, short ev, void *arg) {
     char buffer[MSG_MAX_SIZE];
-    // 4096 is PIPE_BUF, meaning that messages up to 4096 are atomic and thus read by one read()
-    // if we need larger messages, the receiving logic must be changed (possibly more calls to read)
-    assert(MSG_MAX_SIZE <= 4096 && "for messages larger than 4096, pipe_read must be changed");
     ssize_t nbytes = read(fd, buffer, MSG_MAX_SIZE);
     switch (nbytes) {
     case -1:
@@ -96,10 +80,7 @@ pid_t start_telnet(struct event_base* ev_base, unsigned port, const char * user)
     int flag;
     struct sockaddr_in6 listen_addr;
     listen_fd = socket(AF_INET6, SOCK_STREAM, 0);
-    if (listen_fd < 0) {
-        perror("socket");
-        exit(1);
-    }
+    CHECK_ERR(listen_fd < 0, "socket");
     flag = 1;
     setsockopt(listen_fd, SOL_SOCKET, SO_REUSEADDR, &flag, sizeof(flag));
     flag = 0;
@@ -108,29 +89,17 @@ pid_t start_telnet(struct event_base* ev_base, unsigned port, const char * user)
     listen_addr.sin6_family = AF_INET6;
     listen_addr.sin6_addr = in6addr_any;
     listen_addr.sin6_port = htons(port);
-    if (bind(listen_fd, (struct sockaddr *)&listen_addr, sizeof(listen_addr)) < 0) {
-        perror("bind");
-        exit(1);
-    }
-    if (listen(listen_fd, 5) < 0) {
-        perror("listen");
-        exit(1);
-    }
+    CHECK_ERR(bind(listen_fd, (struct sockaddr *)&listen_addr, sizeof(listen_addr)) < 0, "bind");
+    CHECK_ERR(listen(listen_fd, 5) < 0, "listen");
     pid_t child;
     int pipes[2];
-    if  (pipe(pipes) < 0) {
-        perror("pipe");
-        exit(1);
-    }
+    CHECK_ERR(pipe(pipes) < 0, "pipe");
     child = fork();
-    if (child == -1) {
-        perror("fork");
-        exit(1);
-    }
+    CHECK_ERR(child == -1, "fork");
     if (child == 0) {
         drop_privileges(user);
-        if (getppid() == 1) kill(getpid(), SIGINT);
         prctl(PR_SET_PDEATHSIG, SIGKILL);
+        if (getppid() == 1) kill(getpid(), SIGINT);
         close(pipes[0]);
         handle_telnet(listen_fd, pipes[1]);
         exit(0);
