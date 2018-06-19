@@ -1,5 +1,5 @@
-#ifndef __INCLUDE_ZMQ_LOG_H__
-#define __INCLUDE_ZMQ_LOG_H__
+#ifndef __ZMQ_LOG_H__
+#define __ZMQ_LOG_H__
 
 #define MSG_MAX_SIZE 4096
 #define MAX_WAITING_MESSAGES 10
@@ -10,4 +10,4 @@ void log_exit();
 void log_send_waiting();
 void log_add(char * msg, unsigned len);
 
-#endif /*__INCLUDE_ZMQ_LOG_H__*/
+#endif /*__ZMQ_LOG_H__*/

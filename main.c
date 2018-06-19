@@ -1,8 +1,10 @@
+#define _GNU_SOURCE  // to have definitions setresgid and setresuid...
 #include <getopt.h>
 #include <stdlib.h>
 #include <stdio.h>
 #include <string.h>
 #include <unistd.h>
+#include <grp.h>
 #include <signal.h>
 #include <pwd.h>
 #include <sys/wait.h>
@@ -10,28 +12,22 @@
 #include <sys/prctl.h>
 #include <netinet/in.h>
 #include <event.h>
-#include <msgpack.h>
 #include <errno.h>
+
+#include <msgpack.h>
 
 #include "utils.h"
 #include "zmq_log.h"
 #include "telnet.h"
 
-/*
- * A child has exited.
- */
-static void SIGCHLD_handler(int sig){
+
+static void SIGCHLD_handler(int sig) {
     int status;
     pid_t pid;
     while ((pid = waitpid(-1, &status, WNOHANG)) > 0) fprintf(stderr, "Process %d has exited with code %d.\n", pid, WEXITSTATUS(status));
 }
 
-
-/*
- * Drop root, chroot and drop privs.
- */
-static void drop_privileges(const char * username)
-{
+static void drop_privileges(const char * username) {
     struct passwd *user;
     if (!geteuid()) {
         user = getpwnam(username);
@@ -70,14 +66,14 @@ static void drop_privileges(const char * username)
     }
 }
 
-void pipe_read(int fd, short ev, void *arg){
+void pipe_read(int fd, short ev, void *arg) {
     char buffer[MSG_MAX_SIZE];
-    //4096 is PIPE_BUF, meaning that messages up to 4096 are atomic and thus read by one read()
-    //if we need larger messages, the receiving logic must be changed (possibly more calls to read)
-    assert(MSG_MAX_SIZE<=4096 && "for messages larger than 4096, pipe_read must be changed");
+    // 4096 is PIPE_BUF, meaning that messages up to 4096 are atomic and thus read by one read()
+    // if we need larger messages, the receiving logic must be changed (possibly more calls to read)
+    assert(MSG_MAX_SIZE <= 4096 && "for messages larger than 4096, pipe_read must be changed");
     ssize_t nbytes = read(fd, buffer, MSG_MAX_SIZE);
-    switch(nbytes){
-	case -1:
+    switch (nbytes) {
+    case -1:
             if (errno == EWOULDBLOCK || errno == EAGAIN) return;
             fprintf(stderr, "error receiving from pipe\n");
             return;
@@ -90,12 +86,12 @@ void pipe_read(int fd, short ev, void *arg){
     log_add(buffer, nbytes);
 }
 
-static void SIGINT_handler(evutil_socket_t sig, short events, void *user_data){
+static void SIGINT_handler(evutil_socket_t sig, short events, void *user_data) {
     DEBUG_PRINT("Caught SIGINT, exiting...\n");
     event_base_loopbreak((struct event_base*)user_data);
 }
 
-pid_t start_telnet(struct event_base* ev_base, unsigned port, const char * user){
+pid_t start_telnet(struct event_base* ev_base, unsigned port, const char * user) {
     int listen_fd;
     int flag;
     struct sockaddr_in6 listen_addr;
@@ -122,16 +118,16 @@ pid_t start_telnet(struct event_base* ev_base, unsigned port, const char * user)
     }
     pid_t child;
     int pipes[2];
-    if  (pipe(pipes)<0)  {
+    if  (pipe(pipes) < 0) {
         perror("pipe");
-        exit(1); 
+        exit(1);
     }
     child = fork();
-    if (child==-1){
+    if (child == -1) {
         perror("fork");
         exit(1);
     }
-    if (child==0){
+    if (child == 0) {
         drop_privileges(user);
         if (getppid() == 1) kill(getpid(), SIGINT);
         prctl(PR_SET_PDEATHSIG, SIGKILL);
@@ -147,7 +143,7 @@ pid_t start_telnet(struct event_base* ev_base, unsigned port, const char * user)
     return child;
 }
 
-int main(int argc, char *argv[]){
+int main(int argc, char *argv[]) {
     struct event_base* ev_base = event_base_new();
     unsigned telnet_port = 23;
     const char * local_socket = "ipc:///tmp/sentinel_pull.sock";
@@ -185,13 +181,13 @@ int main(int argc, char *argv[]){
     signal(SIGCHLD, SIGCHLD_handler);
     int telnet_proc_pid = start_telnet(ev_base, telnet_port, user);
     log_init(ev_base, local_socket, topic);
-    struct event * sigint_event=event_new(ev_base, SIGINT, EV_SIGNAL|EV_PERSIST, SIGINT_handler, ev_base);
+    struct event * sigint_event = event_new(ev_base, SIGINT, EV_SIGNAL|EV_PERSIST, SIGINT_handler, ev_base);
     event_add(sigint_event, NULL);
-    struct event * sigterm_event=event_new(ev_base, SIGTERM, EV_SIGNAL|EV_PERSIST, SIGINT_handler, ev_base);
+    struct event * sigterm_event = event_new(ev_base, SIGTERM, EV_SIGNAL|EV_PERSIST, SIGINT_handler, ev_base);
     event_add(sigterm_event, NULL);
-    //run event loop
+    // run event loop...
     event_base_dispatch(ev_base);
-    //interrupted, cleaning up
+    // ...interrupted, cleaning up
     kill(telnet_proc_pid, SIGINT);
     log_exit();
     return 0;

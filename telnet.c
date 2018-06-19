@@ -1,13 +1,8 @@
-#ifndef _DEFAULT_SOURCE
-#define _DEFAULT_SOURCE 1
-#endif
-
 #include <stdlib.h>
 #include <stdio.h>
 #include <string.h>
 #include <unistd.h>
 #include <signal.h>
-#include <fcntl.h>
 #include <sys/socket.h>
 #include <netinet/in.h>
 #include <stdbool.h>
@@ -18,17 +13,6 @@
 
 #include "telnet.h"
 #include "utils.h"
-
-int setnonblock(int fd){
-    int flags;
-    flags = fcntl(fd, F_GETFL);
-    if (flags < 0)
-        return flags;
-    flags |= O_NONBLOCK;
-    if (fcntl(fd, F_SETFL, flags) < 0)
-        return -1;
-    return 0;
-}
 
 enum expect {
     EXPECT_NONE,
@@ -66,9 +50,9 @@ enum position {
 
 struct conn_data {
     int fd;
-    enum expect expect; // Local context - like expecting a command specifier as the next character, etc.
-    enum command neg_verb; // What was the last verb used for option negotiation
-    enum position position; // Global state
+    enum expect expect;  // Local context - like expecting a command specifier as the next character, etc.
+    enum command neg_verb;  // What was the last verb used for option negotiation
+    enum position position;  // Global state
     struct event read_ev;
     struct event denial_timeout_ev;
     int attempts;
@@ -77,13 +61,13 @@ struct conn_data {
     char *line_base, *line;
 };
 
-bool conn_data_used[MAX_CONN_COUNT]; //no need to initialize explicitly, initialized to zero/false (global variables always are)
+bool conn_data_used[MAX_CONN_COUNT];  // no need to initialize explicitly, initialized to zero/false (global variables always are)
 struct conn_data conn_data_pool[MAX_CONN_COUNT];
 
-static struct conn_data * alloc_conn_data(){
-    for (unsigned i=0; i<MAX_CONN_COUNT; i++) {
-        if(!conn_data_used[i]) {
-            conn_data_used[i]=true;
+static struct conn_data * alloc_conn_data() {
+    for (unsigned i = 0; i < MAX_CONN_COUNT; i++) {
+        if (!conn_data_used[i]) {
+            conn_data_used[i] = true;
             return &conn_data_pool[i];
         }
     }
@@ -91,11 +75,11 @@ static struct conn_data * alloc_conn_data(){
     return NULL;
 }
 
-static void free_conn_data(struct conn_data * conn){
+static void free_conn_data(struct conn_data * conn) {
     if (!conn) return;
-    unsigned idx=conn-&conn_data_pool[0];
-    assert(idx<=MAX_CONN_COUNT);
-    conn_data_used[idx]=false;
+    unsigned idx = conn - &conn_data_pool[0];
+    assert(idx <= MAX_CONN_COUNT);
+    conn_data_used[idx] = false;
 }
 
 int report_fd;
@@ -103,7 +87,7 @@ struct event_base* ev_base;
 
 #define PACK_STR(packer, str) {msgpack_pack_str(packer, strlen(str)); msgpack_pack_str_body(packer, str, strlen(str));}
 
-static void report_connected(const char * ipaddr_str){
+static void report_connected(const char * ipaddr_str) {
     msgpack_sbuffer sbuf;
     msgpack_sbuffer_init(&sbuf);
     msgpack_packer pk;
@@ -119,7 +103,7 @@ static void report_connected(const char * ipaddr_str){
     msgpack_sbuffer_destroy(&sbuf);
 }
 
-static void report_login_attempt(const char * ipaddr_str, char * username, char * password){
+static void report_login_attempt(const char * ipaddr_str, char * username, char * password) {
     msgpack_sbuffer sbuf;
     msgpack_sbuffer_init(&sbuf);
     msgpack_packer pk;
@@ -153,12 +137,12 @@ static bool send_all(struct conn_data *conn, const char *data, size_t amount) {
 }
 
 static bool ask_for_login(struct conn_data *conn) {
-    const char *prompt="login: \xff\xf9";
+    const char *prompt = "login: \xff\xf9";
     return send_all(conn, prompt, strlen(prompt));
 }
 
 static bool ask_for_password(struct conn_data *conn) {
-    const char *prompt="password: \xff\xf9";
+    const char *prompt = "password: \xff\xf9";
     return send_all(conn, prompt, strlen(prompt));
 }
 
@@ -171,7 +155,7 @@ static void do_close(struct conn_data *conn) {
 
 static bool protocol_error(struct conn_data *conn, const char *message) {
     DEBUG_PRINT("Telnet protocol error %s\n", message);
-    const char *msg="Protocol error\r\n\xff\xf9";
+    const char *msg = "Protocol error\r\n\xff\xf9";
     send_all(conn, msg, strlen(msg));
     return false;
 }
@@ -222,17 +206,17 @@ static bool process_line(struct conn_data *conn) {
 
 static bool cmd_handle(struct conn_data *conn, uint8_t cmd) {
     switch (cmd) {
-        case CMD_SE: // Subnegotiation end - this should not be here, it should appear in EXPECT_PARAMS_END
+        case CMD_SE:  // Subnegotiation end - this should not be here, it should appear in EXPECT_PARAMS_END
             return protocol_error(conn, "Unexpected SE");
-        case CMD_NOP: // NOP
-        case CMD_DM: // Data Mark - not implemented and ignored
-        case CMD_BREAK: // Break - just strange character
-        case CMD_AO: // Abort output - not implemented
-        case CMD_AYT: // Are You There - not implemented
-        case CMD_GA: // Go Ahead - not interesting to us
+        case CMD_NOP:  // NOP
+        case CMD_DM:  // Data Mark - not implemented and ignored
+        case CMD_BREAK:  // Break - just strange character
+        case CMD_AO:  // Abort output - not implemented
+        case CMD_AYT:  // Are You There - not implemented
+        case CMD_GA:  // Go Ahead - not interesting to us
             conn->expect = EXPECT_NONE;
             return true;
-        case CMD_SB: // Subnegotiation parameters
+        case CMD_SB:  // Subnegotiation parameters
             conn->expect = EXPECT_PARAMS;
             return true;
         case CMD_WILL:
@@ -242,14 +226,14 @@ static bool cmd_handle(struct conn_data *conn, uint8_t cmd) {
             conn->expect = EXPECT_OPCODE;
             conn->neg_verb = cmd;
             return true;
-        case CMD_IP: // Interrupt process - abort connection
+        case CMD_IP:  // Interrupt process - abort connection
             return protocol_error(conn, "Interrupted");
-        case CMD_EC: // Erase character
+        case CMD_EC:  // Erase character
             if (conn->line && conn->line > conn->line_base)
-                conn->line --;
+                conn->line--;
             conn->expect = EXPECT_NONE;
             return true;
-        case CMD_EL: // Erase Line - ignored
+        case CMD_EL:  // Erase Line - ignored
             conn->line = conn->line_base;
             return true;
         default:
@@ -266,11 +250,11 @@ static bool char_handle(struct conn_data *conn, uint8_t ch) {
         case EXPECT_OPCODE: {
             if (conn->neg_verb == CMD_WILL || conn->neg_verb == CMD_DO) {
                 // Refuse the option
-                uint8_t cmd = (conn->neg_verb ^ (CMD_WILL ^ CMD_DO)) + 1; // WILL->DON'T, DO->WON'T
+                uint8_t cmd = (conn->neg_verb ^ (CMD_WILL ^ CMD_DO)) + 1;  // WILL->DON'T, DO->WON'T
                 char message[3] = { CMD_IAC, cmd, ch };
                 if (!send_all(conn, message, sizeof message))
                     return false;
-            } // else - it's off, so this is OK, no reaction
+            }  // else - it's off, so this is OK, no reaction
             conn->expect = EXPECT_NONE;
             return true;
         }
@@ -291,7 +275,6 @@ static bool char_handle(struct conn_data *conn, uint8_t ch) {
             conn->expect = EXPECT_NONE;
             return true;
         default:
-//             insane("Invalid expected state %u\n", (unsigned)conn->expect);
             break;
     }
     // We are in a normal mode, decide if we see anything special
@@ -310,31 +293,33 @@ static bool char_handle(struct conn_data *conn, uint8_t ch) {
     return true;
 }
 
-static void sockaddr_to_string(struct sockaddr_storage * connection_addr, char * str){
-    //str is assumed to be at least INET6_ADDRSTRLEN long
+static void sockaddr_to_string(struct sockaddr_storage * connection_addr, char * str) {
+    // str is assumed to be at least INET6_ADDRSTRLEN long
     struct in6_addr *v6;
     if (connection_addr->ss_family == AF_INET6) {
-        v6 = &(((struct sockaddr_in6 *)connection_addr)->sin6_addr);
+        struct sockaddr_in6 *connection_addr6 = (struct sockaddr_in6 *)connection_addr;
+        v6 = &(connection_addr6->sin6_addr);
         if (v6->s6_addr32[0] == 0 && v6->s6_addr32[1] == 0 && v6->s6_addr16[4] == 0 && v6->s6_addr16[5] == 0xFFFF)
             inet_ntop(AF_INET, &v6->s6_addr32[3], str, INET_ADDRSTRLEN);
         else
             inet_ntop(AF_INET6, v6, str, INET6_ADDRSTRLEN);
-    } else if (connection_addr->ss_family == AF_INET)
-        inet_ntop(AF_INET, &(((struct sockaddr_in *)connection_addr)->sin_addr), str, INET_ADDRSTRLEN);
+    } else if (connection_addr->ss_family == AF_INET) {
+        struct sockaddr_in *connection_addr4 = (struct sockaddr_in *)connection_addr;
+        inet_ntop(AF_INET, &(connection_addr4->sin_addr), str, INET_ADDRSTRLEN);
+    }
 }
 
-
+#define RECV_BUFFER_SIZE 1024
 static void on_recv(int fd, short ev, void *arg) {
-    struct conn_data* conn = (struct conn_data*)arg;
-    const size_t block = 1024;
-    char buffer[block];
-    ssize_t amount = recv(fd, buffer, block, MSG_DONTWAIT);
+    struct conn_data *conn = (struct conn_data*)arg;
+    char buffer[RECV_BUFFER_SIZE];
+    ssize_t amount = recv(fd, buffer, RECV_BUFFER_SIZE, MSG_DONTWAIT);
     switch (amount) {
-        case -1: // Error
+        case -1:  // Error
             if (errno == EWOULDBLOCK || errno == EAGAIN) return;
             DEBUG_PRINT("Error on telnet connection %d: %s\n", fd, strerror(errno));
             // No break - fall through
-        case 0: // Close
+        case 0:  // Close
             DEBUG_PRINT("Closed telnet connection %d\n", fd);
             do_close(conn);
             return;
@@ -349,8 +334,8 @@ static void on_recv(int fd, short ev, void *arg) {
         }
 }
 
-static void setup_conn_data(struct conn_data * conn, int connection_fd, struct sockaddr_storage * connection_addr){
-    memset(conn,0,sizeof(*conn));
+static void setup_conn_data(struct conn_data * conn, int connection_fd, struct sockaddr_storage * connection_addr) {
+    memset(conn, 0, sizeof(*conn));
     conn->expect = EXPECT_NONE;
     conn->position = WANT_LOGIN;
     conn->line = conn->line_base = conn->username;
@@ -359,17 +344,17 @@ static void setup_conn_data(struct conn_data * conn, int connection_fd, struct s
     sockaddr_to_string(connection_addr, conn->ipaddr_str);
 }
 
-static void on_accept(int listen_fd, short ev, void *arg){
+static void on_accept(int listen_fd, short ev, void *arg) {
     int connection_fd;
     struct sockaddr_storage connection_addr;
-    socklen_t connection_addr_len=sizeof(connection_addr);
+    socklen_t connection_addr_len = sizeof(connection_addr);
     connection_fd = accept(listen_fd, (struct sockaddr *)&connection_addr, &connection_addr_len);
-    if (connection_fd<0) return;
-    if (setnonblock(connection_fd)!=0) {
+    if (connection_fd < 0) return;
+    if (setnonblock(connection_fd) != 0) {
         close(connection_fd);
         return;
     }
-    struct conn_data * conn = alloc_conn_data();
+    struct conn_data *conn = alloc_conn_data();
     if (!conn) {
         close(connection_fd);
         return;
@@ -385,16 +370,16 @@ static void on_accept(int listen_fd, short ev, void *arg){
     report_connected(conn->ipaddr_str);
 }
 
-static void SIGINT_handler(evutil_socket_t sig, short events, void *user_data){
+static void SIGINT_handler(evutil_socket_t sig, short events, void *user_data) {
     event_base_loopbreak(ev_base);
 }
 
-void handle_telnet(int listen_fd, int reporting_fd){
+void handle_telnet(int listen_fd, int reporting_fd) {
     ev_base = event_base_new();
     report_fd = reporting_fd;
-    struct event * ev_accept = event_new(ev_base, listen_fd, EV_READ|EV_PERSIST, on_accept, NULL);
+    struct event *ev_accept = event_new(ev_base, listen_fd, EV_READ|EV_PERSIST, on_accept, NULL);
     event_add(ev_accept, NULL);
-    struct event * signal_event=event_new(ev_base, SIGINT, EV_SIGNAL|EV_PERSIST, SIGINT_handler, NULL);
+    struct event *signal_event = event_new(ev_base, SIGINT, EV_SIGNAL|EV_PERSIST, SIGINT_handler, NULL);
     event_add(signal_event, NULL);
     event_base_dispatch(ev_base);
 }
