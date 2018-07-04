@@ -1,5 +1,24 @@
-#ifndef __UTILS_H__
-#define __UTILS_H__
+/*
+ * Copyright 2018, CZ.NIC z.s.p.o. (http://www.nic.cz/)
+ *
+ *
+ * This program is free software; you can redistribute it and/or
+ * modify it under the terms of the GNU General Public License
+ * as published by the Free Software Foundation; either version 2
+ * of the License, or (at your option) any later version.
+ *
+ * This software is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU General Public License for more details.
+ *
+ * This file is part of sentinel-minipot.
+ */
+
+#ifndef __SENTINEL_MINIPOT_UTILS_H__
+#define __SENTINEL_MINIPOT_UTILS_H__
+
+#define DEBUG 1
 
 #ifdef DEBUG
 #define DEBUG_PRINT(...) fprintf(stderr, __VA_ARGS__)
@@ -7,6 +26,12 @@
 #define DEBUG_PRINT(...) do { } while (0);
 #endif
 
+#define CHECK_ERR(CMD, NAME) do { \
+    if (CMD) { \
+        perror(NAME); \
+        exit(EXIT_FAILURE); \
+    }} while (0)
+
 int setnonblock(int fd);
 
-#endif /*__UTILS_H__*/
+#endif /*__SENTINEL_MINIPOT_UTILS_H__*/
