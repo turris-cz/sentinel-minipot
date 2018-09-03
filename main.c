@@ -44,6 +44,11 @@ static void sigchld_handler(int sig) {
     pid_t pid;
     while ((pid = waitpid(-1, &status, WNOHANG)) > 0)
         fprintf(stderr, "Process %d has exited with code %d.\n", pid, WEXITSTATUS(status));
+    // child process should only die during initialization.
+    // This likely means some misconfiguration (e.g. binding on low port without root)
+    // and have to be fixed. So exit the whole application (continuing with dead child
+    // process likely hides some error - this process can't do anything useful anyway).
+    exit(EXIT_FAILURE);
 }
 
 static void sigint_handler(evutil_socket_t sig, short events, void *user_data) {
