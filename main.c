@@ -69,7 +69,6 @@ void pipe_read(int fd, short ev, void *arg) {
     struct pipe_data_t *pipe_data = (struct pipe_data_t *)arg;
     char buffer[MSG_MAX_SIZE];
     ssize_t nbytes = read(fd, buffer, MSG_MAX_SIZE);
-    printf("recvd %ld\n", nbytes);
     switch (nbytes) {
         case -1:
             if (errno == EWOULDBLOCK || errno == EAGAIN)

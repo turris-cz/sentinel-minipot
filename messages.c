@@ -94,7 +94,6 @@ void reset_pipe_data(struct pipe_data_t *msg) {
 }
 
 void handle_pipe_protocol(char **buffer, ssize_t *nbytes, struct pipe_data_t *msg) {
-    printf("handle - %ld remain\n", *nbytes);
     // each message from minipots (children) has 3 parts - data, action, ip
     // each part is preceeded by int (4B) containing the length, then the data follows
     //  data (first part) can contain arbitrary data - it should be valid msgpack struct (map or just string/int/...)
