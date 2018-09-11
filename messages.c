@@ -113,7 +113,7 @@ void handle_pipe_protocol(char **buffer, ssize_t *nbytes, struct pipe_data_t *ms
                 msgpack_pack_int(&msg->pk, time(NULL));
                 if (len != 0) {
                     PACK_STR(&msg->pk, "data");
-                    msgpack_pack_str(&msg->pk, len);
+                    // data itself is a proper msgpack structure, skip header
                 } else {
                     msg->state = Action;  // no data, so skip straight to action
                 }
