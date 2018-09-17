@@ -114,9 +114,10 @@ static void report_connected(const char *ipaddr_str) {
     unsigned len;
     len = 0;  // no data
     write(report_fd, &len, sizeof(len));
-    len = strlen("connect");
+    const char *action = "connect";
+    len = strlen(action);
     write(report_fd, &len, sizeof(len));
-    write(report_fd, "connect", len);
+    write(report_fd, action, len);
     len = strlen(ipaddr_str);
     write(report_fd, &len, sizeof(len));
     write(report_fd, ipaddr_str, len);
@@ -137,9 +138,10 @@ static void report_login_attempt(const char *ipaddr_str, char *username, char *p
     write(report_fd, &len, sizeof(len));
     write(report_fd, sbuf.data, len);
     msgpack_sbuffer_destroy(&sbuf);
-    len = strlen("connect");
+    const char *action = "login";
+    len = strlen(action);
     write(report_fd, &len, sizeof(len));
-    write(report_fd, "connect", len);
+    write(report_fd, action, len);
     len = strlen(ipaddr_str);
     write(report_fd, &len, sizeof(len));
     write(report_fd, ipaddr_str, len);
