@@ -16,6 +16,8 @@
  *  along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
+#define _GNU_SOURCE
+
 #include <stdlib.h>
 #include <stdio.h>
 #include <string.h>
