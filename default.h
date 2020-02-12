@@ -1,5 +1,5 @@
 /*
- * Copyright 2018, CZ.NIC z.s.p.o. (http://www.nic.cz/)
+ * Copyright 2019-2020, CZ.NIC z.s.p.o. (http://www.nic.cz/)
  *
  *
  * This program is free software; you can redistribute it and/or
