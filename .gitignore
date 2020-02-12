@@ -65,3 +65,8 @@ m4/lt~obsolete.m4
 # (which is called by configure script))
 Makefile
 config.h
+
+# Gperf generated files
+http_method.c
+http_header.c
+http_tr_enc.c
