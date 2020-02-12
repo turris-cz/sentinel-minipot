@@ -12,4 +12,7 @@ AC_CHECK_HEADER([argp.h],
                 [],
                 [AC_SEARCH_LIBS([argp_parse],[argp-standalone],[],[],[])],
                 [])
+AC_CHECK_LIB([b64],[base64_init_decodestate],[],
+            [AC_MSG_ERROR([unable to find base64_init_decodestate function])],[])
+AM_MISSING_PROG([GPERF], [gperf])
 AC_OUTPUT
