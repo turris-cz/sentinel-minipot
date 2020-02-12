@@ -149,28 +149,14 @@ static void report_login_attempt(const char *ipaddr_str, char *username, char *p
     write(report_fd, ipaddr_str, len);
 }
 
-static bool send_all(struct conn_data *conn, const char *data, size_t amount) {
-    while (amount) {
-        ssize_t sent = send(conn->fd, data, amount, MSG_NOSIGNAL);
-        if (sent == -1) {
-            if (errno == EAGAIN || errno == EWOULDBLOCK || errno == EINTR)
-                continue;
-            return false;
-        }
-        data += sent;
-        amount -= sent;
-    }
-    return true;
-}
-
 static bool ask_for_login(struct conn_data *conn) {
     const char prompt[] = "login: \xff\xf9";
-    return send_all(conn, prompt, sizeof(prompt));
+    return send_all(report_fd, prompt, sizeof(prompt));
 }
 
 static bool ask_for_password(struct conn_data *conn) {
     const char prompt[] = "password: \xff\xf9";
-    return send_all(conn, prompt, sizeof(prompt));
+    return send_all(report_fd, prompt, sizeof(prompt));
 }
 
 static void do_close(struct conn_data *conn) {
@@ -184,7 +170,7 @@ static void do_close(struct conn_data *conn) {
 static bool protocol_error(struct conn_data *conn, const char *message) {
     DEBUG_PRINT("Telnet protocol error %s\n", message);
     const char *msg = "Protocol error\r\n\xff\xf9";
-    send_all(conn, msg, strlen(msg));
+    send_all(report_fd, msg, strlen(msg));
     return false;
 }
 
@@ -193,7 +179,7 @@ static void send_denial(int fd, short event, void *data) {
     conn->position = WANT_LOGIN;
     conn->line = conn->line_base = conn->username;
     const char *wrong = "Login incorrect\n";
-    if (!send_all(conn, wrong, strlen(wrong)))
+    if (!send_all(report_fd, wrong, strlen(wrong)))
         goto error;
     if (++conn->attempts == TELNET_MAX_ATTEMPTS)
         goto error;
@@ -278,7 +264,7 @@ static bool char_handle(struct conn_data *conn, uint8_t ch) {
                     // Refuse the option
                     uint8_t cmd = (conn->neg_verb ^ (CMD_WILL ^ CMD_DO)) + 1;   // WILL->DON'T, DO->WON'T
                     char message[3] = { CMD_IAC, cmd, ch };
-                    if (!send_all(conn, message, sizeof message))
+                    if (!send_all(report_fd, message, sizeof(message)))
                         return false;
                 }               // else - it's off, so this is OK, no reaction
                 conn->expect = EXPECT_NONE;
