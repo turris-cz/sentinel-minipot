@@ -71,3 +71,5 @@ http_method.c
 http_header.c
 http_tr_enc.c
 ftp_commands.c
+sasl_mechanisms.c
+smtp_commands.c
