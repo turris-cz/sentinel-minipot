@@ -29,13 +29,12 @@ struct pipe_data_t{
     const char *name;
     enum {Data, Action, Ip} state;
     int remaining;
-    msgpack_sbuffer *sbuf;
+    msgpack_sbuffer sbuf;
     msgpack_packer pk;
 };
 
-void log_init(struct event_base* ev_base, const char * socket, const char * topic);
+void log_init(struct event_base *ev_base, const char *socket, const char *topic);
 void log_exit();
-
 void reset_pipe_data(struct pipe_data_t *msg);
 void handle_pipe_protocol(char **buffer, ssize_t *nbytes, struct pipe_data_t *msg);
 

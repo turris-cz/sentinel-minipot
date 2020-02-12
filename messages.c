@@ -23,11 +23,12 @@
 #include "utils.h"
 #include "messages.h"
 
-msgpack_sbuffer **messages;
+msgpack_sbuffer *messages;
 int messages_max;
 int messages_waiting;
 zsock_t *proxy_sock;
 const char *topic;
+struct event *timer_event;
 
 static void send_data(char *buf, size_t len) {
     zmsg_t *msg = zmsg_new();
@@ -49,7 +50,9 @@ void log_send_waiting() {
     for (unsigned i = 0; i < messages_waiting; i++) {
         // normally, one would expect msgpack_pack_bin(&pk, messages[i].len) here - to append header for the binary
         // but we don't want that here - Data received already have its header. Doing that would result in corrupt msgpack.
-        msgpack_pack_bin_body(&pk, messages[i]->data, messages[i]->size);  // just pack binary, without header
+        // just pack binary, without header
+        msgpack_pack_bin_body(&pk, messages[i].data, messages[i].size);
+        msgpack_sbuffer_destroy(&messages[i]);
     }
     messages_waiting = 0;
     send_data(sbuf.data, sbuf.size);
@@ -66,7 +69,7 @@ void log_init(struct event_base *ev_base, const char *socket, const char *topic_
     proxy_sock = zsock_new(ZMQ_PUSH);
     zsock_connect(proxy_sock, "%s", socket);
     topic = topic_;
-    struct event *timer_event = event_new(ev_base, 0, EV_PERSIST, send_waiting_messages_timer, NULL);
+    timer_event = event_new(ev_base, 0, EV_PERSIST, send_waiting_messages_timer, NULL);
     struct timeval tv;
     tv.tv_sec = MAX_WAIT_TIME;
     tv.tv_usec = 0;
@@ -77,20 +80,21 @@ void log_exit() {
     log_send_waiting();
     zsock_destroy(&proxy_sock);
     free(messages);
+    event_free(timer_event);
 }
 
 void log_add(msgpack_sbuffer *sbuf) {
     if (messages_waiting == messages_max)
         log_send_waiting();
-    messages[messages_waiting++] = sbuf;
+    memcpy(&messages[messages_waiting], sbuf, sizeof(*sbuf));
+    messages_waiting++;
 }
-
 
 void reset_pipe_data(struct pipe_data_t *msg) {
     msg->state = Data;
     msg->remaining = 0;
-    msg->sbuf = msgpack_sbuffer_new();
-    msgpack_packer_init(&msg->pk, msg->sbuf, msgpack_sbuffer_write);
+    msgpack_sbuffer_init(&msg->sbuf);
+    msgpack_packer_init(&msg->pk, &msg->sbuf, msgpack_sbuffer_write);
 }
 
 void handle_pipe_protocol(char **buffer, ssize_t *nbytes, struct pipe_data_t *msg) {
@@ -135,9 +139,16 @@ void handle_pipe_protocol(char **buffer, ssize_t *nbytes, struct pipe_data_t *ms
             *nbytes -= len;
             *buffer += len;
             switch (msg->state) {
-                case Data: msg->state = Action; break;
-                case Action: msg->state = Ip; break;
-                case Ip: log_add(msg->sbuf); reset_pipe_data(msg); break;
+                case Data:
+                    msg->state = Action;
+                    break;
+                case Action:
+                    msg->state = Ip;
+                    break;
+                case Ip:
+                    log_add(&msg->sbuf);
+                    reset_pipe_data(msg);
+                    break;
             }
         } else {
             msg->remaining -= *nbytes;
