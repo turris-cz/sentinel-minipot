@@ -25,8 +25,6 @@
 #define MAX_WAITING_MESSAGES 10
 #define MAX_WAIT_TIME 10
 
-#define PACK_STR(packer, str) {msgpack_pack_str(packer, strlen(str)); msgpack_pack_str_body(packer, str, strlen(str));}
-
 struct pipe_data_t{
     const char *name;
     enum {Data, Action, Ip} state;

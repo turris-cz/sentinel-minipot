@@ -34,6 +34,7 @@
         exit(EXIT_FAILURE); \
     }} while (0)
 
+#define PACK_STR(packer, str) {msgpack_pack_str(packer, strlen(str)); msgpack_pack_str_body(packer, str, strlen(str));}
 int setnonblock(int fd);
 void sockaddr_to_string(struct sockaddr_storage *connection_addr, char *str);
 
