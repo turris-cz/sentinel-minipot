@@ -15,7 +15,14 @@ FTP_COMM_C = ftp_commands.c
 GPERF_FLAGS = --output-file=
 
 bin_PROGRAMS = sentinel_minipot
-sentinel_minipot_SOURCES = main.c messages.c utils.c telnet.c http.c ftp.c smtp.c
+sentinel_minipot_SOURCES = \
+  main.c \
+  messages.c \
+  utils.c \
+  telnet.c \
+  http.c \
+  ftp.c \
+  smtp.c
 sentinel_minipot_CFLAGS = ${czmq_CFLAGS} ${libevent_CFLAGS} ${msgpack_CFLAGS} -std=c99
 sentinel_minipot_LDADD  = ${czmq_LIBS} ${libevent_LIBS} ${msgpack_LIBS}
 BUILT_SOURCES = $(HTTP_METH_C) $(HTTP_HEAD_C) $(HTTP_TR_ENC_C) $(FTP_COMM_C) $(SMTP_COMM_C) $(SASL_MECH_C)

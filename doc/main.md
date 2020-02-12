@@ -89,3 +89,21 @@ received from telnet minipot):
 
 Type is always added according to the child process from which the messages was
 received. When no additional data have been sent, "data" entry is not emitted.
+
+## Event handling
+Each process uses libevent API for handling dedicated events throught events' callbacks. After start-up settings an event loop is run and from this point all the events (reads, writes from/to socket, pipe, signals etc.) are handled by their callbacks.
+
+## Child process
+Child processes implements functionality for particular service. The functionality is given to a service by executing protocol specific handler. Thus there can be more than one child process running same handler - protocol, but of course on different port.
+
+
+## Child process - TCP
+Until now all implemented protocols uses TCP as underlying protocol. So there is a common code base for handling TCP. Minipot can handle some predefined count of simultaneous connections. All the connections are handled by eventloop so only one connection is processed/served at the time. Connections are not handled in parallel manner.
+
+
+## Child process - data structures
+Each minipot can be represented as a set of data structures. All minipots have same main data structure. There is one data structure per opened TCP connection. At a service start, pool of connections' structure of predefined size is dynamically allocated.  When a new connection is established it gets assigned data from the pool. When connection is closed the data are put back to the pool. Every particular buffer has its predefined length. If data doesn't fit they are ignored. The pool memory is freed at a service process shutdown.
+
+
+## Child process - server protocol
+The particular protocol server functionality is implemented by one or two finite state machines. One FSM is used for processing received bytes. The second one is used in case of stateful protocol to implement state dependent functionality.
