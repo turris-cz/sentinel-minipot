@@ -172,7 +172,7 @@ static void drop_privileges(const char *username) {
     CHECK_ERR(prctl(PR_SET_NO_NEW_PRIVS, 1, 0, 0, 0), "prctl(NO_NEW_PRIVS)");
 }
 
-void pipe_read(int fd, short ev, void *arg) {
+static void pipe_read(int fd, short ev, void *arg) {
     struct pipe_data_t *pipe_data = (struct pipe_data_t *)arg;
     char buffer[MSG_MAX_SIZE];
     ssize_t nbytes = read(fd, buffer, MSG_MAX_SIZE);
@@ -188,10 +188,9 @@ void pipe_read(int fd, short ev, void *arg) {
         default:
             break;
     }
-    char * buffer_pos = buffer;
-    while (nbytes > 0) {
+    char *buffer_pos = buffer;
+    while (nbytes > 0)
         handle_pipe_protocol(&buffer_pos, &nbytes, pipe_data);
-    }
 }
 
 static void start_service(struct service_data *service_data, struct event_base *ev_base, unsigned port, const char *user, void (*handle_fn)(unsigned, int), const char *name) {
