@@ -25,8 +25,8 @@
 
 #include "smtp.h"
 #include "utils.h"
-#include "smtp_commands.c"
-#include "sasl_mechanisms.c"
+#include "smtp_commands.gperf.c"
+#include "sasl_mechanisms.gperf.c"
 
 enum syntax_state {
     BUFFER_CMD,

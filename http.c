@@ -36,9 +36,9 @@
 #include "http.h"
 #include "utils.h"
 #include "messages.h"
-#include "http_method.c"
-#include "http_header.c"
-#include "http_tr_enc.c"
+#include "http_method.gperf.c"
+#include "http_header.gperf.c"
+#include "http_tr_enc.gperf.c"
 
 enum state {
     PROCESS_METHOD,

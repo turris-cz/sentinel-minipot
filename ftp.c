@@ -24,7 +24,7 @@
 
 #include "ftp.h"
 #include "utils.h"
-#include "ftp_commands.c"
+#include "ftp_commands.gperf.c"
 
 enum syntax_state {
     RESET_CMD_BUFF,
