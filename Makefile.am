@@ -1,4 +1,4 @@
-bin_PROGRAMS = sentinel_minipot
+bin_PROGRAMS = sentinel-minipot
 
 sentinel_minipot_SOURCES = \
 	main.c \
