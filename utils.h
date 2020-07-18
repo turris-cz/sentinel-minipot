@@ -19,8 +19,14 @@
 #ifndef __SENTINEL_MINIPOT_UTILS_H__
 #define __SENTINEL_MINIPOT_UTILS_H__
 
-#define DEBUG 1
 #include <stdio.h>
+#include <stdlib.h>
+#include <stdbool.h>
+#include <sys/socket.h>
+#include <netinet/in.h>
+#include <msgpack.h>
+
+#define IP_ADDR_LEN INET6_ADDRSTRLEN
 
 #ifdef DEBUG
 #define DEBUG_PRINT(...) fprintf(stderr, __VA_ARGS__)
@@ -35,7 +41,25 @@
     }} while (0)
 
 #define PACK_STR(packer, str) {msgpack_pack_str(packer, strlen(str)); msgpack_pack_str_body(packer, str, strlen(str));}
+
+struct strpair {
+    char *key;
+    char *value;
+};
+
 int setnonblock(int fd);
 void sockaddr_to_string(struct sockaddr_storage *connection_addr, char *str);
+
+char *skip_prec_ws(char *str, size_t len);
+void strip_trail_ws(char *str, size_t len);
+bool is_empty_str(const char *const str);
+
+bool base64_is_valid(const char *data, size_t len);
+bool send_all(int fd, const char *data, size_t amount);
+bool write_all(int fd, const void *data, size_t len);
+
+bool proxy_report(int fd, struct strpair *data, size_t strpair_num, char *action, char *ip);
+int range_rand(int min, int max);
+void copy_util(char *src, size_t src_len, char *dest, size_t dest_len);
 
 #endif /*__SENTINEL_MINIPOT_UTILS_H__*/
