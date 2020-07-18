@@ -16,487 +16,503 @@
  *  along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
-#include <event.h>
-#include <signal.h>
+#include <event2/event.h>
 #include <string.h>
+#include <strings.h>
 #include <unistd.h>
+#include <signal.h>
+#include <time.h>
+#include <stdbool.h>
 
-#include "ftp.h"
+#include "char_consts.h"
 #include "utils.h"
+#include "minipot_pipe.h"
 #include "ftp_commands.gperf.c"
 
-enum syntax_state {
-    RESET_CMD_BUFF,
-    BUFFER_CMD,
-    CHECK_CMD_END,
-    PROCESS_CMD,
-    SYNTAX_ERROR,
-};
+#define MAX_CONN_COUNT 5
+#define CONN_TIMEOUT (60 * 5)
+#define INACT_TIMEOUT (60 * 3)
 
-enum semantics_state {
-    INIT,
-    EXPECT_PASS,
-};
+#define CMD_BUFF_LEN 4096
+#define USER_BUFF_LEN CMD_BUFF_LEN
+
+#define CONNECT_EV "connect"
+#define LOGIN_EV "login"
+#define TYPE "ftp"
+
+#define LOGIN_USER "username"
+#define LOGIN_PASS "password"
+
+#define LOG_ATMPS_CNT 100
+
+#define WELOME_RESP "220 (vsFTPd 3.0.3)\r\n"
+#define TIMEOUT_RESP "421 Timeout.\r\n"
+#define OTHER_RESP "530 Please login with USER and PASS.\r\n"
+#define TOO_LONG_CMD_RESP "500 Input line too long.\r\n"
+#define USER_RESP "331 Please specify the password.\r\n"
+#define FEAT_RESP "211-Features:\r\n EPRT\r\n EPSV\r\n MDTM\r\n PASV\r\n REST STREAM\r\n SIZE\r\n TVFS\r\n211 End\r\n"
+#define OPTS_501_RESP "501 Option not understood.\r\n"
+#define OPTS_200_RESP "200 Always in UTF8 mode.\r\n"
+#define PASS_530_RESP "530 Login incorrect.\r\n"
+#define PASS_503_RESP "503 Login with USER first.\r\n"
+#define QUIT_RESP "221 Goodbye.\r\n"
+
+#define UTF8_ON_OPT "utf8 on"
 
 struct conn_data {
-    int fd;
-    struct event *read_ev;
-    struct event *timeout_ev;
-    uint8_t *ipaddr_str;
-    uint8_t *token_buffer;
-    uint8_t *token_write_ptr;
-    size_t token_buffer_free_space;
-    int try_count;
-    int try_limit;
-    enum syntax_state syntax_state;
-    bool syntax_run;
-    enum semantics_state semantics_state;
-    struct ftp_command *command;
-    uint8_t *user;
-    uint8_t *password;
+	int fd;
+	struct event *read_ev;
+	struct event *con_tout_ev;
+	struct event *inac_tout_ev;
+	uint8_t *ipaddr_str;
+	uint8_t *cmd_buff;
+	uint8_t *cmd_buff_wrt_ptr;
+	size_t cmd_buff_free_len;
+	int try_count;
+	bool user_provided;
+	uint8_t *user;
+	size_t user_len;
 };
 
+static int exit_code;
 static int report_fd;
 static struct event_base *ev_base;
 static struct conn_data *conn_data_pool;
-static uint8_t *read_buffer;
-static struct timeval *conn_timeout;
+static uint8_t *read_buff;
+static struct event *accept_ev;
 
-static inline void report_login(struct conn_data *conn_data) {
-    struct strpair data[] = {
-        {"user", conn_data->user},
-        {"password", conn_data->password},
-    };
-    if (!proxy_report(report_fd, data, sizeof(data) / sizeof(*data), "login", conn_data->ipaddr_str))
-        DEBUG_PRINT("ftp error - could not report login\n");
+static void free_conn_data(struct conn_data *conn_data) {
+	free(conn_data->cmd_buff);
+	free(conn_data->user);
+	free(conn_data->ipaddr_str);
+	event_free(conn_data->inac_tout_ev);
+	event_free(conn_data->con_tout_ev);
+	event_free(conn_data->read_ev);
 }
 
-static inline void report_connect(struct conn_data *conn_data) {
-    if (!proxy_report(report_fd, NULL, 0, "connect", conn_data->ipaddr_str))
-        DEBUG_PRINT("ftp error - could not report syntax error\n");
+static int alloc_conn_data(struct conn_data *conn_data) {
+	conn_data->read_ev = event_new(NULL, 0, 0, NULL, NULL);
+	if (conn_data->read_ev == NULL)
+		goto err1;
+	conn_data->con_tout_ev = event_new(NULL, 0, 0, NULL, NULL);
+	if (conn_data->con_tout_ev == NULL)
+		goto err2;
+	conn_data->inac_tout_ev = event_new(NULL, 0, 0, NULL, NULL);
+	if (conn_data->inac_tout_ev == NULL)
+		goto err3;
+	conn_data->ipaddr_str = malloc(sizeof(*conn_data->ipaddr_str) * IP_ADDR_LEN);
+	if (conn_data->ipaddr_str == NULL)
+		goto err4;
+	conn_data->user = malloc(sizeof(*conn_data->user) * USER_BUFF_LEN);
+	if (conn_data->user == NULL)
+		goto err5;
+	conn_data->cmd_buff = malloc(sizeof(*conn_data->cmd_buff) * CMD_BUFF_LEN);
+	if (conn_data->cmd_buff == NULL)
+		goto err6;
+	conn_data->fd = -1;
+	return 0;
+
+	err6:
+	free(conn_data->user);
+
+	err5:
+	free(conn_data->ipaddr_str);
+
+	err4:
+	event_free(conn_data->inac_tout_ev);
+
+	err3:
+	event_free(conn_data->con_tout_ev);
+
+	err2:
+	event_free(conn_data->read_ev);
+
+	err1:
+	return -1;
 }
 
-static inline void send_response(struct conn_data *conn_data, uint8_t *response) {
-    if (!send_all(conn_data->fd, response, strlen(response)))
-        DEBUG_PRINT("ftp error - could not send response\n");
+static void free_conn_data_pool(size_t size, struct conn_data *conn_data) {
+	for (size_t i = 0; i < size; i++)
+		free_conn_data(&conn_data[i]);
 }
 
-static inline void clear_token_buffer(struct conn_data *conn_data) {
-    memset(conn_data->token_buffer, 0, sizeof(*conn_data->token_buffer) * FTP_TOKEN_BUFFER_LEN);
-    conn_data->token_write_ptr = conn_data->token_buffer;
-    // leave space for terminating byte
-    conn_data->token_buffer_free_space = FTP_TOKEN_BUFFER_LEN - 1;
+static int alloc_conn_data_pool(struct conn_data **conn_data) {
+	struct conn_data *data = malloc(sizeof(*data) * MAX_CONN_COUNT);
+	for (size_t i = 0; i < MAX_CONN_COUNT; i++) {
+		if (alloc_conn_data(&data[i]) != 0) {
+			free_conn_data_pool(i, data);
+			return -1;
+		}
+	}
+	*conn_data = data;
+	return 0;
 }
 
-static inline void clear_user(struct conn_data *conn_data) {
-    memset(conn_data->user, 0, sizeof(*conn_data->user) * FTP_USER_LEN);
+static int alloc_glob_res() {
+	ev_base = event_base_new();
+	if (ev_base == NULL)
+		goto err1;
+	if (alloc_conn_data_pool(&conn_data_pool) !=0 )
+		goto err2;
+	read_buff = malloc(sizeof(*read_buff) * BUFSIZ);
+	if (read_buff == NULL)
+		goto err3;
+	accept_ev = event_new(NULL, 0, 0, NULL, NULL);
+	if(accept_ev == NULL)
+		goto err4;
+	return 0;
+
+	err4:
+	free(read_buff);
+
+	err3:
+	free_conn_data_pool(MAX_CONN_COUNT, conn_data_pool);
+
+	err2:
+	event_base_free(ev_base);
+
+	err1:
+	return -1;
 }
 
-static inline void clear_password(struct conn_data *conn_data) {
-    memset(conn_data->password, 0, sizeof(*conn_data->password) * FTP_PASSWORD_LEN);
-}
-
-static inline void clear_ip_addr(struct conn_data *conn_data) {
-    memset(conn_data->ipaddr_str, 0, sizeof(*conn_data->ipaddr_str) * IP_ADDR_LEN);
-}
-
-static inline void reset_conn_data(struct conn_data *conn_data) {
-    conn_data->syntax_run = false;
-    conn_data->syntax_state = RESET_CMD_BUFF;
-    conn_data->semantics_state = INIT;
-    conn_data->command = NULL;
-    conn_data->try_count = 0;
-}
-
-static struct conn_data *get_conn_data(int connection_fd) {
-    unsigned i = 0;
-    // not used structs have fd set to -1, we don't need separate flags
-    while (i < FTP_MAX_CONN_COUNT && conn_data_pool[i].fd != -1)
-        i++;
-    if (i >= FTP_MAX_CONN_COUNT) {
-        DEBUG_PRINT("ftp - no free struct conn_data - connection limit reached\n");
-        return NULL;
-    }
-    reset_conn_data(&conn_data_pool[i]);
-    conn_data_pool[i].fd = connection_fd;
-    conn_data_pool[i].try_limit = range_rand(FTP_CRED_MIN_RANGE, FTP_CRED_MAX_RANGE);
-    return &conn_data_pool[i];
-}
-
-static void do_close(struct conn_data *conn_data) {
-    DEBUG_PRINT("ftp - close, fd: %d\n",conn_data->fd);
-    event_del(conn_data->read_ev);
-    event_del(conn_data->timeout_ev);
-    close(conn_data->fd);
-    conn_data->fd = -1;
+static void free_glob_res() {
+	event_free(accept_ev);
+	free_conn_data_pool(MAX_CONN_COUNT, conn_data_pool);
+	event_base_free(ev_base);
+	free(read_buff);
 }
 
 static void reset_cmd_buff(struct conn_data *conn_data) {
-    clear_token_buffer(conn_data);
-    conn_data->syntax_run = true;
-    conn_data->syntax_state = BUFFER_CMD;
+	conn_data->cmd_buff_wrt_ptr = conn_data->cmd_buff;
+	conn_data->cmd_buff_free_len = CMD_BUFF_LEN;
 }
 
-static void buffer_cmd(struct conn_data *conn_data, uint8_t **buffer, size_t *size_to_proc) {
-    size_t chr_cnt_to_delim = *size_to_proc;
-    uint8_t *token_end_ptr = strchr(*buffer, '\x0D');
-    if (token_end_ptr)
-        chr_cnt_to_delim = (size_t) (token_end_ptr - *buffer);
-    if (conn_data->token_buffer_free_space >= chr_cnt_to_delim) {
-        // copy to token buffer
-        memcpy(conn_data->token_write_ptr, *buffer, chr_cnt_to_delim);
-        conn_data->token_buffer_free_space -= chr_cnt_to_delim;
-        conn_data->token_write_ptr += chr_cnt_to_delim;
-        // shift read buffer
-        *buffer += chr_cnt_to_delim;
-        *size_to_proc -= chr_cnt_to_delim;
-        if (token_end_ptr) {
-            // we can go to another state
-            conn_data->syntax_state = CHECK_CMD_END;
-            // just skip CR byte
-            *buffer += 1;
-            *size_to_proc -=1;
-        } else {
-            // if token end was not found we just wait for next read 
-            conn_data->syntax_run = false;
-        }
-    } else {
-        // no space in token buffer for cmd
-        // char limit reached
-        conn_data->syntax_run = false;
-        send_response(conn_data, FTP_421_RESP);
-        do_close(conn_data);
-    }
+static inline void reset_conn_data(struct conn_data *conn_data) {
+	conn_data->try_count = 0;
+	conn_data->user_provided = false;
+	conn_data->user_len = 0;
+	memset(conn_data->ipaddr_str, 0, sizeof(*conn_data->ipaddr_str) * IP_ADDR_LEN);
+	reset_cmd_buff(conn_data);
 }
 
-static void check_cmd_end(struct conn_data *conn_data, uint8_t **buffer, size_t *size_to_proc) {
-    if (*size_to_proc == 0) {
-        // if no bytes in buffer pause and stay in current state
-        conn_data->syntax_run = false;
-    } else {
-        // check if first byte in buffer is LF
-        if (**buffer == LF) {
-            conn_data->syntax_state = PROCESS_CMD;
-            // shift behind LF
-            (*buffer)++;
-            (*size_to_proc)--;
-        } else {
-            conn_data->syntax_state = SYNTAX_ERROR;
-        }
-    }
+static struct conn_data *get_conn_data(int fd) {
+	struct conn_data *ret = NULL;
+	size_t i = 0;
+	for (; i < MAX_CONN_COUNT; i++) {
+		if (conn_data_pool[i].fd == -1) {
+			if (ret == NULL) {
+				// reserve slot
+				conn_data_pool[i].fd = fd;
+				reset_conn_data(&conn_data_pool[i]);
+				ret = &conn_data_pool[i];
+			} else // We break later to check if there is at least one more free slot
+				break;
+		}
+	}
+	if (i == MAX_CONN_COUNT)
+		event_del(accept_ev);
+	return ret;
+}
+static void close_conn(struct conn_data *conn_data) {
+	DEBUG_PRINT("ftp - closed connection, fd: %d\n",conn_data->fd);
+	event_del(conn_data->read_ev);
+	event_del(conn_data->con_tout_ev);
+	event_del(conn_data->inac_tout_ev);
+	close(conn_data->fd);
+	conn_data->fd = -1;
+	event_add(accept_ev, NULL);
 }
 
-static void on_unrecognized_cmd(struct conn_data *conn_data) {
-    conn_data->semantics_state = INIT;
-    send_response(conn_data, FTP_500_RESP);
-} 
-
-static void on_user_cmd(struct conn_data *conn_data, uint8_t *params) {
-    // must have parameter
-    if (!params) {
-        conn_data->semantics_state = INIT;
-        send_response(conn_data, FTP_501_RESP);
-    } else {
-        if (conn_data->semantics_state == INIT)
-            conn_data->semantics_state = EXPECT_PASS;
-        clear_user(conn_data);
-        copy_util(params, strlen(params), conn_data->user, FTP_USER_LEN - 1);
-        send_response(conn_data, FTP_331_RESP);
-    }
+static inline int send_resp(struct conn_data *conn_data, char *mesg) {
+	if (send_all(conn_data->fd, mesg, strlen(mesg)) != 0) {
+		DEBUG_PRINT("ftp - error - could not send to peer\n");
+		return -1;
+	} else {
+		return 0;
+	}
 }
 
-static void on_pass_cmd(struct conn_data *conn_data, uint8_t *params) {
-    // must have parameter
-    if (!params) {
-        conn_data->semantics_state = INIT;
-        send_response(conn_data, FTP_501_RESP);
-    } else {
-        if (conn_data->semantics_state == INIT) {
-            send_response(conn_data, FTP_503_RESP);
-        } else if (conn_data->semantics_state == EXPECT_PASS) {
-            clear_password(conn_data);
-            copy_util(params, strlen(params), conn_data->password, FTP_PASSWORD_LEN - 1);
-            conn_data->try_count++;
-            if (conn_data->try_count == conn_data->try_limit) {
-                send_response(conn_data, FTP_421_RESP);
-                report_login(conn_data);
-                do_close(conn_data);
-            } else {
-                conn_data->semantics_state = INIT;
-                send_response(conn_data, FTP_530_RESP);
-                report_login(conn_data);
-            }
-        } else {
-            DEBUG_PRINT("ftp - on pass cmd - unknown state\n");
-        }
-    }
+static void report_login(struct conn_data *conn_data, uint8_t *param, size_t param_len) {
+	struct uint8_t_pair auth[] = {
+		{LOGIN_USER, strlen(LOGIN_USER), conn_data->user, conn_data->user_len},
+		// we don't need store password for reporting - it is command buffer
+		{LOGIN_PASS, strlen(LOGIN_PASS), param, param_len},
+	};
+	struct proxy_data data;
+	data.ts = time(NULL);
+	data.type = TYPE;
+	data.ip = conn_data->ipaddr_str;
+	data.action = LOGIN_EV;
+	data.data = auth;
+	data.data_len = sizeof(auth) / sizeof(*auth);
+	if (proxy_report(report_fd, &data) !=0) {
+		DEBUG_PRINT("ftp - error - couldn't report login\n");
+		exit_code = EXIT_FAILURE;
+		event_base_loopbreak(ev_base);
+	}
 }
 
-static void on_rein_cmd(struct conn_data *conn_data,uint8_t *params) {
-    // must have no parameters
-    conn_data->semantics_state = INIT;
-    if (params)
-        send_response(conn_data, FTP_501_RESP);
-    else
-        send_response(conn_data, FTP_220_REIN_RESP);
+static void report_connect(struct conn_data *conn_data) {
+	struct proxy_data data;
+	data.ts = time(NULL);
+	data.type = TYPE;
+	data.ip = conn_data->ipaddr_str;
+	data.action = CONNECT_EV;
+	data.data = NULL;
+	data.data_len = 0;
+	if (proxy_report(report_fd, &data) !=0) {
+		DEBUG_PRINT("ftp - error - couldn't report connect\n");
+		exit_code = EXIT_FAILURE;
+		event_base_loopbreak(ev_base);
+	}
 }
 
-static void on_quit_cmd(struct conn_data *conn_data, uint8_t *params) {    
-    // must have no parameterss
-    // also goes to INIT state but it has no meaning because we are going to close the connection
-    if (params) {
-        send_response(conn_data, FTP_501_RESP);
-    } else {
-        send_response(conn_data, FTP_221_RESP);
-        do_close(conn_data);
-    }
+static int user_cmd(struct conn_data *conn_data, uint8_t *param, size_t param_len) {
+	DEBUG_PRINT("ftp - user cmd\n");
+	if (param_len > 0) {
+		conn_data->user_provided = true;
+		memcpy(conn_data->user, param, param_len);
+		conn_data->user_len = param_len;
+	}
+	return send_resp(conn_data, USER_RESP);
 }
 
-static void on_help_cmd(struct conn_data *conn_data, uint8_t *params) {
-    conn_data->semantics_state = INIT;
-    send_response(conn_data, FTP_530_RESP);
+static int pass_cmd(struct conn_data *conn_data,  uint8_t *param, size_t param_len) {
+	DEBUG_PRINT("ftp - pass cmd\n");
+	if (conn_data->user_provided) {
+		conn_data->user_provided = false;
+		report_login(conn_data, param, param_len);
+		if (send_resp(conn_data,PASS_530_RESP))
+			return -1;
+		conn_data->try_count++;
+		if (conn_data->try_count == LOG_ATMPS_CNT) {
+			DEBUG_PRINT("ftp - pass cmd - login attempt limit reached\n");
+			// close connection
+			return -1;
+		}
+		return 0;
+	} else {
+		return send_resp(conn_data, PASS_503_RESP);
+	}
 }
 
-static void on_feat_cmd(struct conn_data *conn_data, uint8_t *params) {
-    // must have no parameters
-    conn_data->semantics_state = INIT;
-    if (params)
-        send_response(conn_data, FTP_501_RESP);
-    else
-        send_response(conn_data, FTP_211_FEAT_RESP);
+static int opts_cmd(struct conn_data *conn_data,  uint8_t *param, size_t param_len) {
+	DEBUG_PRINT("ftp - opts cmd\n");
+	if (param_len > 0)
+		if (strncasecmp(param, UTF8_ON_OPT,param_len) != 0)
+			return send_resp(conn_data, OPTS_501_RESP);
+		else
+			return send_resp(conn_data, OPTS_200_RESP);
+	else
+		return send_resp(conn_data, OPTS_501_RESP);
 }
 
-static void on_noop_cmd(struct conn_data *conn_data, uint8_t *params) {
-    // no params
-    conn_data->semantics_state = INIT;
-    if (params)
-        send_response(conn_data, FTP_501_RESP);
-    else
-        send_response(conn_data, FTP_200_RESP);
+static int proc_cmd(struct conn_data *conn_data) {
+	DEBUG_PRINT("ftp - detect cmd\n");
+	// strip LF
+	conn_data->cmd_buff_free_len += 1;
+	if (CMD_BUFF_LEN == conn_data->cmd_buff_free_len)
+		// empty command
+		return 0;
+	size_t cmd_str_len = CMD_BUFF_LEN - conn_data->cmd_buff_free_len;
+	// strip CR if part of command separator
+	if (conn_data->cmd_buff[cmd_str_len - 1] == CR) {
+		cmd_str_len -= 1;
+		if (cmd_str_len == 0)
+			// empty command
+			return 0;
+	}
+	size_t cmd_code_len = cmd_str_len;
+	uint8_t *param = NULL;
+	size_t param_len = 0;
+	uint8_t *delim = memchr(conn_data->cmd_buff, SP, cmd_str_len);
+	if (delim) {
+		cmd_code_len = delim - conn_data->cmd_buff;
+		param_len = cmd_str_len - cmd_code_len - 1;
+		if (param_len)
+			param = delim + 1;
+	}
+	struct ftp_command *cmd = ftp_command_lookup(conn_data->cmd_buff, cmd_code_len);
+	if (cmd == NULL) {
+		DEBUG_PRINT("ftp - other cmd\n");
+		return send_resp(conn_data, OTHER_RESP);
+	} else {
+		switch (cmd->comand_abr) {
+			case USER:
+				return user_cmd(conn_data, param, param_len);
+			case PASS:
+				return pass_cmd(conn_data, param, param_len);
+			case QUIT:
+				DEBUG_PRINT("ftp - quit cmd\n");
+				send_resp(conn_data, QUIT_RESP);
+				return -1;
+			case FEAT:
+				DEBUG_PRINT("ftp -feat cmd\n");
+				return send_resp(conn_data, FEAT_RESP);
+			case OPTS:
+				return opts_cmd(conn_data, param, param_len);
+			default:
+				DEBUG_PRINT("ftp - detect cmd - default\n");
+				return -1;
+		}
+	}
 }
 
-static void on_unused_cmd(struct conn_data *conn_data, uint8_t *params) {
-    conn_data->semantics_state = INIT;
-    send_response(conn_data, FTP_530_RESP);
+static void proc_bytes(struct conn_data *conn_data, uint8_t *buff, size_t buff_len) {
+	DEBUG_PRINT("ftp - proc bytes - start\n");
+	while (buff_len > 0) {
+		size_t bytes_to_buff;
+		uint8_t *cmd_separator = memchr(buff, LF, buff_len);
+		if (cmd_separator != NULL)
+			// including the separator
+			bytes_to_buff = cmd_separator - buff + 1;
+		else
+			bytes_to_buff = buff_len;
+		if (bytes_to_buff <= conn_data->cmd_buff_free_len) {
+			memcpy(conn_data->cmd_buff_wrt_ptr, buff, bytes_to_buff);
+			conn_data->cmd_buff_wrt_ptr += bytes_to_buff;
+			conn_data->cmd_buff_free_len -= bytes_to_buff;
+			if (cmd_separator != NULL) {
+				if (proc_cmd(conn_data) != 0) {
+					close_conn(conn_data);
+					break;
+				} else {
+					// continue
+					reset_cmd_buff(conn_data);
+				}
+			} else {
+				// wait for more data
+				break;
+			}
+		} else {
+			if (send_resp(conn_data, TOO_LONG_CMD_RESP) != 0) {
+				close_conn(conn_data);
+				break;
+			} else {
+				reset_cmd_buff(conn_data);
+			}
+		}
+		buff += bytes_to_buff;
+		buff_len -= bytes_to_buff;
+	}
+	DEBUG_PRINT("ftp - proc bytes - stop\n");
 }
 
-static void proc_cmd(struct conn_data *conn_data, uint8_t **buffer, size_t *size_to_proc) {
-    uint8_t *token = conn_data->token_buffer;
-    // find SP if any - delimeter of comand and parameters
-    uint8_t *delim = strchr(token, '\x20');
-    uint8_t *params_ptr = NULL;
-    if (delim) {
-        // terminate command code from its parameters
-        *delim = 0;
-        delim++;
-        params_ptr = delim;
-    }
-    conn_data->command = ftp_command_lookup(token, strlen(token));
-    if (!conn_data->command) {
-        on_unrecognized_cmd(conn_data);
-    } else {
-        switch (conn_data->command->comand_abr) {
-            case USER:
-                on_user_cmd(conn_data, params_ptr);
-                break;
-            case PASS:
-                on_pass_cmd(conn_data, params_ptr);
-                break;
-            case REIN:
-                on_rein_cmd(conn_data, params_ptr);
-                break;
-            case QUIT:
-                on_quit_cmd(conn_data, params_ptr);
-                break;
-            case NOOP:
-                on_noop_cmd(conn_data, params_ptr);
-                break;
-            case HELP:
-                on_help_cmd(conn_data, params_ptr);
-                break;
-            case FEAT:
-                on_feat_cmd(conn_data, params_ptr);
-                break;
-            case ACCT: case ALLO: case APPE: case CDUP: case CWD: case DELE:
-            case EPRT: case EPSV: case LIST: case LPRT: case LPSV: case MDTM:
-            case MKD: case MLSD: case MLST: case MODE: case NLST: case OPTS:
-            case PASV: case PORT: case PWD: case REST: case RETR: case RMD:
-            case RNFR: case RNTO: case SITE: case SIZE: case SMNT: case STAT:
-            case STOR: case STOU: case STRU: case SYST: case TYPE: case ABOR:
-                on_unused_cmd(conn_data, params_ptr);
-                break;
-            default:
-                DEBUG_PRINT("ftp - proc_cmd - default state\n");
-                break;
-        }
-    }
-    conn_data->syntax_state = RESET_CMD_BUFF;
-    if (*size_to_proc > 0)
-        conn_data->syntax_run = true;
-    else
-        conn_data->syntax_run = false;
-}   
-
-static void syntax_error(struct conn_data *conn_data, uint8_t **buffer, size_t *size_to_proc) {
-    send_response(conn_data, FTP_421_RESP);
-    do_close(conn_data);
-    conn_data->syntax_run = false;
-}
-
-static void proc_buffer(struct conn_data *conn_data, uint8_t *buffer, size_t size) {
-    DEBUG_PRINT("ftp - proc buffer - start\n");
-    uint8_t *buffer_ptr = buffer;
-    size_t elems_to_process = size;
-    conn_data->syntax_run = true;
-    while (conn_data->syntax_run) {
-        switch (conn_data->syntax_state) {
-            case RESET_CMD_BUFF:
-                DEBUG_PRINT("ftp - reset cmd buffer");
-                reset_cmd_buff(conn_data);
-                break;
-            case BUFFER_CMD:
-                DEBUG_PRINT("ftp - buffer cmd\n");
-                buffer_cmd(conn_data, &buffer_ptr, &elems_to_process);
-                break;
-            case CHECK_CMD_END:
-                DEBUG_PRINT("ftp - check cmd\n");
-                check_cmd_end(conn_data, &buffer_ptr, &elems_to_process);
-                break;
-            case PROCESS_CMD:
-                DEBUG_PRINT("ftp - process cmd\n");
-                proc_cmd(conn_data,&buffer_ptr,&elems_to_process);
-                break;
-            case SYNTAX_ERROR:
-                DEBUG_PRINT("ftp - syntax error\n");
-                syntax_error(conn_data,&buffer_ptr,&elems_to_process);
-                break;
-            default:
-                DEBUG_PRINT("ftp - proc buffer - default\n");
-                conn_data->syntax_run = false;
-                break;
-        }
-    }
-    DEBUG_PRINT("ftp - proc buffer - end\n");
+static void on_timeout(int fd, short ev, void *arg){
+	DEBUG_PRINT("ftp - timeout\n");
+	struct conn_data *conn_data = (struct conn_data *)arg;
+	send_resp(conn_data, TIMEOUT_RESP);
+	close_conn(conn_data);
 }
 
 static void on_recv(int fd, short ev, void *arg) {
-    struct conn_data *conn_data = (struct conn_data *)arg;
-    memset(read_buffer, 0, sizeof(*read_buffer) * BUFSIZ);
-    // MSG_DONTWAIT - nonblocking
-    ssize_t amount = recv(fd, read_buffer, BUFSIZ, MSG_DONTWAIT);
-    switch (amount) {
-        case -1:
-            if (errno == EWOULDBLOCK || errno == EAGAIN)
-                return;
-            DEBUG_PRINT("ftp - Error on connection %d: %s\n", fd, strerror(errno));
-            // No break - fall through
-        case 0:
-            DEBUG_PRINT("ftp - Closed connection %d\n", fd);
-            do_close(conn_data);
-            return;
-        default:
-            break;
-    }
-    proc_buffer(conn_data,read_buffer,(size_t)amount);
-}
-
-static void on_conn_timeout(int fd, short ev, void *arg){
-    DEBUG_PRINT("ftp - conn timeout\n");
-    struct conn_data *conn_data = (struct conn_data *)arg;
-    do_close(conn_data);
+	DEBUG_PRINT("ftp - on receive\n");
+	struct conn_data *conn_data = (struct conn_data *)arg;
+	ssize_t amount = recv(fd, read_buff, BUFSIZ, 0);
+	switch (amount) {
+		case -1:
+			if (errno == EAGAIN)
+				return;
+			DEBUG_PRINT("ftp - error on connection %d: %s\n", fd, strerror(errno));
+		case 0:
+			close_conn(conn_data);
+			return;
+	}
+	struct timeval tm = {INACT_TIMEOUT, 0};
+	evtimer_add(conn_data->inac_tout_ev, &tm);
+	proc_bytes(conn_data, read_buff, (size_t) amount);
 }
 
 static void on_accept(int listen_fd, short ev, void *arg) {
-    int connection_fd;
-    struct sockaddr_storage connection_addr;
-    socklen_t connection_addr_len = sizeof(connection_addr);
-    connection_fd = accept(listen_fd, (struct sockaddr *)&connection_addr, &connection_addr_len);
-    if (connection_fd < 0)
-        return;
-    if (setnonblock(connection_fd) != 0) {
-        close(connection_fd);
-        return;
-    }
-    struct conn_data *conn_data = get_conn_data(connection_fd);
-    if (!conn_data) {
-        // no free slots
-        close(connection_fd);
-        return;
-    }
-    clear_ip_addr(conn_data);
-    sockaddr_to_string(&connection_addr, conn_data->ipaddr_str);
-    DEBUG_PRINT("ftp - accepted connection %d\n", connection_fd);
-    event_assign(conn_data->read_ev, ev_base, connection_fd, EV_READ | EV_PERSIST, on_recv, conn_data);
-    event_add(conn_data->read_ev, NULL);
-    evtimer_assign(conn_data->timeout_ev, ev_base, on_conn_timeout, conn_data);
-    evtimer_add(conn_data->timeout_ev, conn_timeout);
-    send_response(conn_data, FTP_220_WELCOME_RESP);
-    report_connect(conn_data);
+	DEBUG_PRINT("ftp - on accept\n");
+	struct sockaddr_storage conn_addr;
+	socklen_t conn_addr_len = sizeof(conn_addr);
+	int conn_fd = accept(listen_fd, (struct sockaddr *)&conn_addr, &conn_addr_len);
+	if (conn_fd < 0) {
+		DEBUG_PRINT("ftp - error - accept\n");
+		return;
+	}
+	if (setnonblock(conn_fd) != 0) {
+		DEBUG_PRINT("ftp - error - couldnt set nonblock\n");
+		close(conn_fd);
+		return;
+	}
+	struct conn_data *conn_data = get_conn_data(conn_fd);
+	if (conn_data == NULL) {
+		DEBUG_PRINT("ftp - accept - no free slots\n");
+		// no free slots
+		close(conn_fd);
+		return;
+	}
+	if (sockaddr_to_string(&conn_addr, conn_data->ipaddr_str) != 0) {
+		DEBUG_PRINT("ftp - sock addr to string - unknown socket family\n");
+		exit_code = EXIT_FAILURE;
+		event_base_loopbreak(ev_base);
+		return;
+	}
+	if (send_resp(conn_data, WELOME_RESP) != 0) {
+		close(conn_data->fd);
+		conn_data->fd = -1;
+		return;
+	}
+	event_assign(conn_data->read_ev, ev_base, conn_data->fd, EV_READ | EV_PERSIST, on_recv, conn_data);
+	event_add(conn_data->read_ev, NULL);
+	evtimer_assign(conn_data->con_tout_ev, ev_base, on_timeout, conn_data);
+	struct timeval tm = {CONN_TIMEOUT, 0};
+	evtimer_add(conn_data->con_tout_ev, &tm);
+	evtimer_assign(conn_data->inac_tout_ev, ev_base, on_timeout, conn_data);
+	tm = (struct timeval) {INACT_TIMEOUT, 0};
+	evtimer_add(conn_data->inac_tout_ev, &tm);
+	report_connect(conn_data);
+	DEBUG_PRINT("ftp - accepted connection %d\n", conn_data->fd);
 }
 
-// SIGINT signal - sent by terminal
-static void sigint_handler(evutil_socket_t sig, short events, void *user_data) {
-    event_base_loopbreak(ev_base);
-}
+void handle_ftp(uint16_t port, int pipe_write_fd) {
+	exit_code = EXIT_SUCCESS;
+	report_fd = pipe_write_fd;
+	int listen_fd;
+	if (setup_sock(&listen_fd) != 0) {
+		DEBUG_PRINT("ftp - error - couldn't setup socket\n");
+		exit_code = EXIT_FAILURE;
+		goto socket_err1;
+	}
+	if (bind_to_port(listen_fd, port) != 0) {
+		DEBUG_PRINT("ftp - error - couldn't  bind to port fd: %d\n", listen_fd);
+		exit_code = EXIT_FAILURE;
+		goto socket_err2;
+	}
+	if (listen(listen_fd, 5) != 0) {
+		DEBUG_PRINT("ftp - error - couldn't listen on port fd: %d\n", listen_fd);
+		exit_code = EXIT_FAILURE;
+		goto socket_err2;
+	}
+	if (alloc_glob_res() != 0 ) {
+		DEBUG_PRINT("ftp - error - couldn't allocate global resources\n");
+		exit_code = EXIT_FAILURE;
+		goto socket_err2;
+	}
+	struct event *sigint_ev = event_new(ev_base, SIGINT, EV_SIGNAL, on_sigint, ev_base);
+	if (sigint_ev == NULL) {
+		DEBUG_PRINT("ftp - error - couldn't allocate sigint ev\n");
+		exit_code = EXIT_FAILURE;
+		goto sigint_ev_err;
+	}
+	signal(SIGPIPE, SIG_IGN);
+	// to supress evenet base logging
+	event_set_log_callback(ev_base_discard_cb);
+	event_assign(accept_ev, ev_base, listen_fd, EV_READ | EV_PERSIST, on_accept, NULL);
+	event_add(accept_ev, NULL);
+	event_add(sigint_ev, NULL);
+	event_base_dispatch(ev_base);
+	event_free(sigint_ev);
 
-static void alloc_conn_data_pool() {
-    conn_data_pool = malloc(sizeof(*conn_data_pool)*FTP_MAX_CONN_COUNT);
-    for (unsigned i = 0; i < FTP_MAX_CONN_COUNT; i++) {
-        conn_data_pool[i].read_ev = malloc(sizeof(*conn_data_pool[i].read_ev));
-        conn_data_pool[i].timeout_ev = malloc(sizeof(*conn_data_pool[i].timeout_ev));
-        conn_data_pool[i].ipaddr_str = malloc(sizeof(*conn_data_pool[i].ipaddr_str) * IP_ADDR_LEN);
-        conn_data_pool[i].token_buffer = malloc(sizeof(*conn_data_pool[i].token_buffer) * FTP_TOKEN_BUFFER_LEN);
-        conn_data_pool[i].user = malloc(sizeof(*conn_data_pool[i].user) * FTP_USER_LEN);
-        conn_data_pool[i].password = malloc(sizeof(*conn_data_pool[i].password) * FTP_PASSWORD_LEN);
-        conn_data_pool[i].fd = -1;
-    }
-}
+	sigint_ev_err:
+	free_glob_res();
 
-static void free_conn_data_pool() {
-    for (unsigned i = 0; i < FTP_MAX_CONN_COUNT; i++) {
-        free(conn_data_pool[i].read_ev);
-        free(conn_data_pool[i].timeout_ev);
-        free(conn_data_pool[i].ipaddr_str);
-        free(conn_data_pool[i].token_buffer);
-        free(conn_data_pool[i].user);
-        free(conn_data_pool[i].password);
-    }
-    free(conn_data_pool);
-}
+	socket_err2:
+	close(listen_fd);
 
-void handle_ftp(unsigned port, int reporting_fd) {
-    DEBUG_PRINT("ftp - running\n");
-    int listen_fd = socket(AF_INET6, SOCK_STREAM, 0);
-    CHECK_ERR(listen_fd < 0, "socket");
-    int flag = 1;
-    setsockopt(listen_fd, SOL_SOCKET, SO_REUSEADDR, &flag, sizeof(flag));
-    flag = 0;
-    // IPv6 or mapped IPv4 address
-    setsockopt(listen_fd, IPPROTO_IPV6, IPV6_V6ONLY, &flag, sizeof(flag));
-    struct sockaddr_in6 listen_addr;
-    memset(&listen_addr, 0, sizeof(listen_addr));
-    listen_addr.sin6_family = AF_INET6;
-    listen_addr.sin6_addr = in6addr_any;
-    listen_addr.sin6_port = htons(port);
-    CHECK_ERR(bind(listen_fd, (struct sockaddr *)&listen_addr, sizeof(listen_addr)) < 0, "bind");
-    CHECK_ERR(listen(listen_fd, 5) < 0, "listen");
-    signal(SIGPIPE, SIG_IGN);
-    alloc_conn_data_pool();
-    ev_base = event_base_new();
-    report_fd = reporting_fd;
-    conn_timeout = malloc(sizeof(*conn_timeout));
-    conn_timeout->tv_sec = FTP_CONN_TIMEOUT;
-    conn_timeout->tv_usec = 0;
-    read_buffer = malloc(sizeof(*read_buffer) * BUFSIZ);
-    struct event *ev_accept = event_new(ev_base, listen_fd, EV_READ | EV_PERSIST, on_accept, NULL);
-    event_add(ev_accept, NULL);
-    struct event *signal_event = event_new(ev_base, SIGINT, EV_SIGNAL | EV_PERSIST, sigint_handler, NULL);
-    event_add(signal_event, NULL);
-    event_base_dispatch(ev_base);
-    free_conn_data_pool();
-    event_free(ev_accept);
-    event_free(signal_event);
-    event_base_free(ev_base);
-    free(conn_timeout);
-    free(read_buffer);
+	socket_err1:
+	close(report_fd);
+	exit(exit_code);
 }
