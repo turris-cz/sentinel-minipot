@@ -20,13 +20,14 @@
 #define __SENTINEL_MINIPOT_UTILS_H__
 
 #include <stdio.h>
-#include <stdlib.h>
-#include <stdbool.h>
-#include <sys/socket.h>
 #include <netinet/in.h>
-#include <msgpack.h>
+#include <stdint.h>
+#include <stdbool.h>
+#include <event.h>
 
 #define IP_ADDR_LEN INET6_ADDRSTRLEN
+
+#define DEBUG 1
 
 #ifdef DEBUG
 #define DEBUG_PRINT(...) fprintf(stderr, __VA_ARGS__)
@@ -34,32 +35,39 @@
 #define DEBUG_PRINT(...) do { } while (0);
 #endif
 
-#define CHECK_ERR(CMD, NAME) do { \
-    if (CMD) { \
-        perror(NAME); \
-        exit(EXIT_FAILURE); \
-    }} while (0)
+#ifdef DEBUG
+#define DEBUG_WRITE(...) do { \
+	fwrite(__VA_ARGS__, stderr); \
+	fprintf(stderr, "\n"); \
+	} while (0)
+#else
+#define DEBUG_WRITE(...) do { } while (0);
+#endif
 
-#define PACK_STR(packer, str) {msgpack_pack_str(packer, strlen(str)); msgpack_pack_str_body(packer, str, strlen(str));}
+#define FLOW_GUARD(cmd) do { \
+	if (cmd) \
+		return -1; \
+	} while (0)
 
-struct strpair {
-    char *key;
-    char *value;
+#define MY_MIN(a,b) \
+   ({ __typeof__ (a) _a = (a); \
+	   __typeof__ (b) _b = (b); \
+	 _a > _b ? _b : _a; })
+
+struct token{
+	uint8_t *start_ptr;
+	size_t len;
 };
 
 int setnonblock(int fd);
-void sockaddr_to_string(struct sockaddr_storage *connection_addr, char *str);
-
-char *skip_prec_ws(char *str, size_t len);
-void strip_trail_ws(char *str, size_t len);
-bool is_empty_str(const char *const str);
-
-bool base64_is_valid(const char *data, size_t len);
-bool send_all(int fd, const char *data, size_t amount);
-bool write_all(int fd, const void *data, size_t len);
-
-bool proxy_report(int fd, struct strpair *data, size_t strpair_num, char *action, char *ip);
-int range_rand(int min, int max);
-void copy_util(char *src, size_t src_len, char *dest, size_t dest_len);
+int sockaddr_to_string(struct sockaddr_storage *conn_addr, char *str);
+int send_all(int fd, const char *data, size_t amount);
+size_t tokenize(uint8_t *str, size_t str_len, struct token *tokens, size_t tokens_len, uint8_t *separators, size_t sep_len);
+void ev_base_discard_cb(int severity, const char *msg);
+bool base64_is_valid(const char *const data, size_t len);
+void concat_mesg(char **buff, size_t args_num, ...);
+void on_sigint(evutil_socket_t sig, short events, void *user_data);
+int bind_to_port(int fd, uint16_t port);
+int setup_sock(int *fd);
 
 #endif /*__SENTINEL_MINIPOT_UTILS_H__*/
