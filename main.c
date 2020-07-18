@@ -17,8 +17,6 @@
  */
 
 
-#define _GNU_SOURCE             // to have definitions setresgid and setresuid...
-
 #define ARGP_ERROR_PORT_OUT_RAN -1
 #define MAX_MINIPOT_COUNT 32
 

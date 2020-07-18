@@ -2,6 +2,7 @@ AC_INIT([sentinel-minipot], [2.0], [tech.support@turris.cz])
 
 AM_INIT_AUTOMAKE([foreign -Wall -Wno-portability])
 AC_PROG_CC
+AC_GNU_SOURCE
 
 PKG_CHECK_MODULES([czmq], [libczmq])
 PKG_CHECK_MODULES([libevent], [libevent])
@@ -19,7 +20,6 @@ AS_IF([test "x$argp_standalone_required" = "yes"],
 AC_PATH_PROG([GPERF], [gperf])
 AS_IF([test -z "$GPERF"], [AC_MSG_ERROR([Missing gperf generator])])
 
-AC_CONFIG_HEADERS([config.h])
 AC_CONFIG_FILES([Makefile])
 
 AC_OUTPUT

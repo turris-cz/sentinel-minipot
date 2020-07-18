@@ -16,8 +16,6 @@
  *  along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
-#define _GNU_SOURCE
-
 #include <signal.h>
 #include <event.h>
 #include <unistd.h>
