@@ -18,7 +18,6 @@
 #ifndef __SENTINEL_MINIPOT_DEFAULT_H__
 #define __SENTINEL_MINIPOT_DEFAULT_H__
 
-#define DEFAULT_TELNET_PORT 23
 #define DEFAULT_LOCAL_SOCKET "ipc:///tmp/sentinel_pull.sock"
 #define DEFAULT_TOPIC "sentinel/collect/minipot"
 #define DEFAULT_USER "nobody"
