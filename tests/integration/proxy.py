@@ -23,6 +23,25 @@ def gen_proxy_report(protocol, action, ip, data):
     return report
 
 
+def gen_proxy_report2(protocol, action, ip, data):
+    """ Generates proxy report from given input data.
+        protocol - bytes
+        action - bytes
+        ip - bytes
+        data - dictionary, keys, values are bytes
+        returns dictionary  """
+    report = {}
+    report[b'type'] = protocol
+    report[b'action'] = action
+    report[b'ip'] = ip
+    if data:
+        report[b'data'] = {}
+        for k, v in data.items():
+            if v:
+                report[b'data'][k] = v
+    return report
+
+
 def gen_connect_report(ip, protocol):
     """ Generates proxy connect report.
         ip - string
@@ -50,8 +69,8 @@ def gen_syntax_error_report(ip, protocol):
 def proxy_handler(zmq_sock_path):
     """ Receives messages from sentinel proxy.
         zmq_sock_path - path to local ipc zmq socket - string
-        returns list of dictionaries """
-    received = []
+        returns list of dictionaries in BINARY form"""
+    ret = []
     context = zmq.Context()
     proxy_sock = context.socket(zmq.PULL)
     proxy_sock.bind(zmq_sock_path)
@@ -63,11 +82,12 @@ def proxy_handler(zmq_sock_path):
             topic = str(zmq_mesg[0], encoding="UTF-8")
             if topic != 'sentinel/collect/minipot':
                 raise Exception('wrong topic: ', topic)
-            for mesg in msgpack.unpackb(zmq_mesg[1], raw=False):
+            received = msgpack.unpackb(zmq_mesg[1], raw=True)
+            for mesg in received:
                 # remove timestamp, because of later matching received reports with generated reports
-                del mesg['ts']
-                received.append(mesg)
+                del mesg[b'ts']
+                ret.append(mesg)
         else:
             break
     context.destroy()
-    return received
+    return ret
