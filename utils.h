@@ -20,6 +20,7 @@
 #define __SENTINEL_MINIPOT_UTILS_H__
 
 #define DEBUG 1
+#include <stdio.h>
 
 #ifdef DEBUG
 #define DEBUG_PRINT(...) fprintf(stderr, __VA_ARGS__)
@@ -34,5 +35,6 @@
     }} while (0)
 
 int setnonblock(int fd);
+void sockaddr_to_string(struct sockaddr_storage *connection_addr, char *str);
 
 #endif /*__SENTINEL_MINIPOT_UTILS_H__*/
