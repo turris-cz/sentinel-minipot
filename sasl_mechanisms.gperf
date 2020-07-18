@@ -1,0 +1,22 @@
+%define hash-function-name sasl_mech_hash
+%define lookup-function-name sasl_mech_lookup
+%language=C
+%7bit
+%enum
+%includes
+%ignore-case
+%struct-type
+%{
+enum sasl_mech_abr{
+    PLAIN,
+    LOGIN,
+};
+%}
+struct sasl_mechanism {
+    char *name;
+    enum sasl_mech_abr abr;
+};
+%%
+#only comments allowed here
+plain,  PLAIN
+login,  LOGIN

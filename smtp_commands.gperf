@@ -1,0 +1,44 @@
+%define hash-function-name smtp_command_hash
+%define lookup-function-name smtp_command_lookup
+%language=C
+%7bit
+%enum
+%includes
+%ignore-case
+%struct-type
+%{
+enum smtp_command_abr{
+    EHLO,
+    HELO,
+    MAIL,
+    RCPT,
+    DATA,
+    RSET,
+    VRFY,
+    EXPN,
+    HELP,
+    NOOP,
+    QUIT,
+    AUTH,
+    BURL,
+};
+%}
+struct smtp_command {
+    char *name;
+    enum smtp_command_abr comand_abr;
+};
+%%
+#only comments allowed here
+ehlo,   EHLO
+helo,   HELO
+mail,   MAIL
+rcpt,   RCPT
+data,   DATA
+rset,   RSET
+vrfy,   VRFY
+expn,   EXPN
+help,   HELP
+noop,   NOOP
+quit,   QUIT
+auth,   AUTH
+burl,   BURL
