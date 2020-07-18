@@ -19,11 +19,9 @@
 #ifndef __SENTINEL_MINIPOT_TELNET_H__
 #define __SENTINEL_MINIPOT_TELNET_H__
 
-#define TELNET_MAX_CONN_COUNT 5
-#define TELNET_S_LINE_MAX 256
-#define TELNET_DENIAL_TIMEOUT 1
-#define TELNET_MAX_ATTEMPTS 3
-
-void handle_telnet(unsigned port, int reporting_fd);
+/*
+ * Runs Telnet minimal honeypot.
+ */
+void handle_telnet(uint16_t port, int reporting_fd);
 
 #endif /*__SENTINEL_MINIPOT_TELNET_H__*/
