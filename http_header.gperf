@@ -1,0 +1,27 @@
+%define hash-function-name http_header_name_hash
+%define lookup-function-name http_header_name_lookup
+%language=C
+%7bit
+%enum
+%includes
+%ignore-case
+%struct-type
+%{
+enum http_header_type{
+    AUTHORIZATION,
+    USER_AGENT,
+    CONTENT_LENGTH,
+    TRANSFER_ENCODING,
+};
+%}
+struct http_header{
+    char *name;
+    enum http_header_type header_type;
+};
+%%
+#only comments allowed here
+authorization,          AUTHORIZATION
+user-agent,             USER_AGENT
+content-length,         CONTENT_LENGTH
+transfer-encoding,      TRANSFER_ENCODING
+%%

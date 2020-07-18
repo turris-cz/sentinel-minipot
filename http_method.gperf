@@ -1,0 +1,36 @@
+%define hash-function-name http_method_hash
+%define lookup-function-name http_method_lookup
+%language=C
+%7bit
+%enum
+%includes
+%struct-type
+%{
+enum http_method_type{
+    GET,
+    HEAD,
+    POST,
+    PUT,
+    DELETE,
+    CONNECT,
+    OPTIONS,
+    TRACE,
+    PATCH,
+};
+%}
+struct http_method{
+    char *name;
+    enum http_method_type method_type;
+};
+%%
+#only comments allowed here
+GET,        GET
+HEAD,       HEAD
+POST,       POST
+PUT,        PUT
+DELETE,     DELETE
+CONNECT,    CONNECT
+OPTIONS,    OPTIONS
+TRACE,      TRACE
+PATCH,      PATCH
+%%
