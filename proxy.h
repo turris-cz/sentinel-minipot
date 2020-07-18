@@ -16,26 +16,24 @@
  *  along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
-#ifndef __SENTINEL_MINIPOT_MESSAGES_H__
-#define __SENTINEL_MINIPOT_MESSAGES_H__
+#ifndef __SENTINEL_MINIPOT_PROXY_H__
+#define __SENTINEL_MINIPOT_PROXY_H__
 
-#include <msgpack.h>
+#include "minipot_config.h"
 
-#define MSG_MAX_SIZE 4096
-#define MAX_WAITING_MESSAGES 10
-#define MAX_WAIT_TIME 10
+/*
+ * Initializes connection to Sentinel Proxy - messages relaying component.
+ */
+int proxy_init(struct event_base *ev_base, struct configuration *conf);
 
-struct pipe_data_t{
-    const char *name;
-    enum {Data, Action, Ip} state;
-    int remaining;
-    msgpack_sbuffer sbuf;
-    msgpack_packer pk;
-};
+/*
+ * Adds message for sending to Proxy component.
+ */
+void proxy_add(msgpack_sbuffer *sbuf);
 
-void log_init(struct event_base *ev_base, const char *socket, const char *topic);
-void log_exit();
-void reset_pipe_data(struct pipe_data_t *msg);
-void handle_pipe_protocol(char **buffer, ssize_t *nbytes, struct pipe_data_t *msg);
+/*
+ * Frees Proxy communication related resources.
+ */
+void proxy_exit();
 
-#endif /*__SENTINEL_MINIPOT_MESSAGES_H__*/
+#endif /*__SENTINEL_MINIPOT_PROXY_H__*/
