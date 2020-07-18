@@ -16,1046 +16,927 @@
  *  along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
-#include <stdlib.h>
-#include <stdio.h>
-#include <string.h>
 #include <unistd.h>
 #include <signal.h>
-#include <sys/socket.h>
-#include <netinet/in.h>
-#include <stdbool.h>
 #include <event.h>
-#include <arpa/inet.h>
-#include <msgpack.h>
-#include <errno.h>
-#include <time.h>
-#include <b64/cdecode.h>
-#include <ctype.h>
+#include <assert.h>
+#include <limits.h>
+#include <stdbool.h>
+#include <string.h>
 
-#include "http.h"
 #include "utils.h"
-#include "messages.h"
-#include "http_method.gperf.c"
+#include "char_consts.h"
+#include "minipot_pipe.h"
 #include "http_header.gperf.c"
 #include "http_tr_enc.gperf.c"
 
+#define MAX_CONN_COUNT 5
+#define INACT_TOUT 20
+#define KEEP_ALIVE_TOUT 5
+#define TOKEN_BUFF_LEN 8192
+#define TOKENS_LEN (TOKEN_BUFF_LEN / 2)
+#define METHOD_LEN TOKEN_BUFF_LEN
+#define URL_LEN TOKEN_BUFF_LEN
+#define USER_AG_LEN TOKEN_BUFF_LEN
+#define AUTH_LEN TOKEN_BUFF_LEN
+#define HEADER_LIMIT 100
+#define MESSAGES_LIMIT 100
+
+#define CONNECT_EV "connect"
+#define MSG_EV "message"
+#define TYPE "http"
+
+#define METHOD "method"
+#define URL "url"
+#define USER_AG "user_agent"
+#define AUTH "authorization"
+
+#define HTTP_VERSION "HTTP/"
+
+#define URI_TOO_LONG_PART1 "HTTP/1.1 414 Request-URI Too Long\r\nDate: "
+// IMPORTANT - when changing length of the body - the Content-Length header value MUST BE changed accordingly !!!
+#define URI_TOO_LONG_PART2 "\r\nServer: Apache/2.4.38 (Debian)\r\nContent-Length: 254\r\n\
+Connection: close\r\nContent-Type: text/html; charset=iso-8859-1\r\n\r\n\
+<!DOCTYPE HTML PUBLIC \"-//IETF//DTD HTML 2.0//EN\">\n<html><head>\n<title>414 Request-URI Too Long</title>\n\
+</head><body>\n<h1>Request-URI Too Long</h1>\n<p>The requested URL\'s length exceeds the capacity\nlimit for this server.<br />\n</p>\n<hr>\n</body></html>\n"
+
+#define BAD_REQ_PART1 "HTTP/1.1 400 Bad Request\r\nDate: "
+// IMPORTANT - when changing length of the body - the Content-Length header value MUST BE changed accordingly !!!
+#define BAD_REQ_PART2 "\r\nServer: Apache/2.4.38 (Debian)\r\nContent-Length: 231\r\nConnection: close\r\n\
+Content-Type: text/html; charset=iso-8859-1\r\n\r\n\
+<!DOCTYPE HTML PUBLIC \"-//IETF//DTD HTML 2.0//EN\">\n<html><head>\n<title>400 Bad Request</title>\n\
+</head><body>\n<h1>Bad Request</h1>\n<p>Your browser sent a request that this server could not understand.<br />\n</p>\n<hr>\n</body></html>\n"
+
+#define UNAUTH_REQ_PART1 "HTTP/1.1 401 Unauthorized\r\nDate: "
+// IMPORTANT - when changing length of the body - the Content-Length header value MUST BE changed accordingly !!!
+#define UNAUTH_REQ_PART2 "\r\nServer: Apache/2.4.38 (Debian)\r\nWWW-Authenticate: Basic realm=\"Authentication Required\"\r\n\
+Content-Length: 386\r\nContent-Type: text/html; charset=iso-8859-1\r\n\r\n\
+<!DOCTYPE HTML PUBLIC \"-//IETF//DTD HTML 2.0//EN\">\n<html><head>\n<title>401 Unauthorized</title>\n</head><body>\n<h1>Unauthorized</h1>\n<p>\
+This server could not verify that you\nare authorized to access the document\nrequested.  Either you supplied the wrong\n\
+credentials (e.g., bad password), or your\nbrowser doesn\'t understand how to supply\nthe credentials required.</p>\n<hr>\n</body></html>\n"
+
+#define TIME_FORMAT "%a, %d %b %Y %T GMT"
+#define TIME_STRING_SIZE 128  // This is arbitrary number (not that time output changed given by locale)
+
 enum state {
-    PROCESS_METHOD,
-    PARSE_METHOD,
-    PROCESS_URL,
-    PROCESS_HTTP_VERSION,
-    PROCESS_START_LINE_END,
-    IS_HEADERS_END1,
-    IS_HEADERS_END2,
-    PROCESS_HEADER,
-    PROCESS_HEADER_END,
-    PARSE_HEADER,
-    HEADERS_END,
-    PROCESS_BODY,
-    PROCESS_CHUNK_SIZE,
-    PROCESS_CHUNK_SIZE_END,
-    PARSE_CHUNK_SIZE,
-    PROCESS_CHUNK,
-    PROCESS_CHUNK_END1,
-    PROCESS_CHUNK_END2,
-    HAS_TRAILER,
-    PROCESS_CHUNKED_BODY_END,
-    PROCESS_TRAILER,
-    PROCESS_TRAILER_END,
-    PARSE_TRAILER,
-    MESSAGE_END,
-    SYNTAX_ERROR,
+	PROC_REQ_LINE,
+	PROC_HEADER,
+	PROC_CHUNK_SIZE,
+	PROC_TRAILER,
+	PROC_BODY,
+	PROC_CHUNK,
+	PROC_CHUNK_END,
 };
 
 struct conn_data {
-    int fd;
-    struct event *read_ev;
-    struct event *timeout_ev;
-    uint8_t *ipaddr_str;
-    // state automaton
-    enum state state;
-    bool run;
-    // HTTP data
-    // general buffer for particular tokens of message
-    uint8_t *token_buffer;
-    uint8_t *token_buffer_write_ptr;
-    size_t token_buffer_free_space;
-    struct http_method *http_method;
-    uint8_t *url;
-    uint8_t *url_write_ptr;
-    size_t url_free_space;
-    struct http_header *header_name;
-    // if multiple authorization headers are processed
-    // -> the old value is overriden
-    uint8_t *user_id;
-    uint8_t *password;
-    // if multiple user-agent headers are processed
-    // -> the old value is overriden
-    uint8_t *user_agent;
-    // transfer encoding header value is list of values
-    // multiple encodings can be listed
-    // transfer encoding header can also arrive multiple times
-    struct http_transfer_encoding **transfer_encoding;
-    size_t transfer_encoding_write_index;
-    // conent length header value is list of values
-    // more details above
-    // !! signed to be able to express error during conversion
-    long int *content_len;
-    size_t content_len_write_index;
-
-    size_t body_len_to_skip;
-    size_t chunk_size_to_skip;
-    // total numbers of characters read from connection
-    size_t char_read_count;
-    // after try limit is reached -> sent 403 forbidden
-    int try_limit;
-    int try_counter;
+	int fd;
+	struct event *read_ev;
+	struct event *keep_alive_tout_ev;
+	struct event *inac_tout_ev;
+	uint8_t *ipaddr_str;
+	uint8_t *token_buff;
+	uint8_t *token_buff_wrt_ptr;
+	size_t token_buff_free_len;
+	enum state state;
+	uint8_t *method;
+	size_t method_len;
+	uint8_t *url;
+	size_t url_len;
+	uint8_t *user_ag;
+	size_t user_ag_len;
+	uint8_t *auth;
+	size_t auth_len;
+	size_t header_cnt;
+	size_t msg_cnt;
+	int64_t con_len;
+	bool trans_enc_head_received;
+	struct http_transfer_encoding *trans_enc;
+	int64_t chunk_size;
 };
 
-static struct conn_data *conn_data_pool;
-// communication with parent process
+static int exit_code;
 static int report_fd;
 static struct event_base *ev_base;
-// uses BUFSIZ macro - at least 256 bytes
-static uint8_t *read_buffer;
-static struct timeval *conn_timeout;
-// temporal storage for decoded credentials token
-uint8_t *decode_buffer;
+static struct conn_data *conn_data_pool;
+static uint8_t *read_buff;
+static struct event *accept_ev;
+static struct token *tokens;
+static size_t tokens_cnt;
 
-static inline void report_connect(struct conn_data *conn_data) {
-    if (!proxy_report(report_fd, NULL, 0, "connect", conn_data->ipaddr_str)) {
-        DEBUG_PRINT("http error - could not report connect");
-        kill(getppid(),SIGINT);
-    }
+static void free_conn_data(struct conn_data *conn_data) {
+	free(conn_data->ipaddr_str);
+	free(conn_data->token_buff);
+	free(conn_data->method);
+	free(conn_data->url);
+	free(conn_data->user_ag);
+	free(conn_data->auth);
+	event_free(conn_data->inac_tout_ev);
+	event_free(conn_data->keep_alive_tout_ev);
+	event_free(conn_data->read_ev);
+}
+
+static int alloc_conn_data(struct conn_data *conn_data) {
+	conn_data->read_ev = event_new(NULL, 0, 0, NULL, NULL);
+	if (conn_data->read_ev == NULL)
+		goto err1;
+	conn_data->keep_alive_tout_ev = event_new(NULL, 0, 0, NULL, NULL);
+	if (conn_data->keep_alive_tout_ev == NULL)
+		goto err2;
+	conn_data->inac_tout_ev = event_new(NULL, 0, 0, NULL, NULL);
+	if (conn_data->inac_tout_ev == NULL)
+		goto err3;
+	conn_data->ipaddr_str = malloc(sizeof(*conn_data->ipaddr_str) * IP_ADDR_LEN);
+	if (conn_data->ipaddr_str == NULL)
+		goto err4;
+	conn_data->token_buff = malloc(sizeof(*conn_data->token_buff) * TOKEN_BUFF_LEN);
+	if (conn_data->token_buff == NULL)
+		goto err5;
+	conn_data->method = malloc(sizeof(*conn_data->method) * METHOD_LEN);
+	if (conn_data->method == NULL)
+		goto err6;
+	conn_data->url = malloc(sizeof(*conn_data->url) * URL_LEN);
+	if (conn_data->url == NULL)
+		goto err7;
+	conn_data->user_ag = malloc(sizeof(*conn_data->user_ag) * USER_AG_LEN);
+	if (conn_data->user_ag == NULL)
+		goto err8;
+	conn_data->auth = malloc(sizeof(*conn_data->auth) * AUTH_LEN);
+	if (conn_data->auth == NULL)
+		goto err9;
+	conn_data->fd = -1;
+	return 0;
+
+	err9:
+	free(conn_data->user_ag);
+
+	err8:
+	free(conn_data->url);
+
+	err7:
+	free(conn_data->method);
+
+	err6:
+	free(conn_data->token_buff);
+
+	err5:
+	free(conn_data->ipaddr_str);
+
+	err4:
+	event_free(conn_data->inac_tout_ev);
+
+	err3:
+	event_free(conn_data->keep_alive_tout_ev);
+
+	err2:
+	event_free(conn_data->read_ev);
+
+	err1:
+	return -1;
+}
+
+static void free_conn_data_pool(size_t size, struct conn_data *conn_data) {
+	for (size_t i = 0; i < size; i++)
+		free_conn_data(&conn_data[i]);
+}
+
+static int alloc_conn_data_pool(struct conn_data **conn_data) {
+	struct conn_data *data = malloc(sizeof(*data) * MAX_CONN_COUNT);
+	for (size_t i = 0; i < MAX_CONN_COUNT; i++) {
+		if (alloc_conn_data(&data[i]) != 0) {
+			free_conn_data_pool(i, data);
+			return -1;
+		}
+	}
+	*conn_data = data;
+	return 0;
+}
+
+static int alloc_glob_res() {
+	ev_base = event_base_new();
+	if (ev_base == NULL)
+		goto err1;
+	if (alloc_conn_data_pool(&conn_data_pool) !=0 )
+		goto err2;
+	read_buff = malloc(sizeof(*read_buff) * BUFSIZ);
+	if (read_buff == NULL)
+		goto err3;
+	accept_ev = event_new(NULL, 0, 0, NULL, NULL);
+	if (accept_ev == NULL)
+		goto err4;
+	tokens = malloc(sizeof(*tokens) * TOKENS_LEN);
+	if (tokens == NULL)
+		goto err5;
+	return 0;
+
+	err5:
+	event_free(accept_ev);
+
+	err4:
+	free(read_buff);
+
+	err3:
+	free_conn_data_pool(MAX_CONN_COUNT, conn_data_pool);
+
+	err2:
+	event_base_free(ev_base);
+
+	err1:
+	return -1;
+}
+
+static void free_glob_res() {
+	event_free(accept_ev);
+	free_conn_data_pool(MAX_CONN_COUNT, conn_data_pool);
+	event_base_free(ev_base);
+	free(read_buff);
+	free(tokens);
+}
+
+static void reset_token_buff(struct conn_data *conn_data) {
+	conn_data->token_buff_wrt_ptr = conn_data->token_buff;
+	conn_data->token_buff_free_len = TOKEN_BUFF_LEN;
+}
+
+static void reset_mesg_limits(struct conn_data *conn_data) {
+	conn_data->state = PROC_REQ_LINE;
+	conn_data->method_len = 0;
+	conn_data->url_len = 0;
+	conn_data->user_ag_len = 0;
+	conn_data->auth_len = 0;
+	conn_data->header_cnt = 0;
+	conn_data->con_len = 0;
+	conn_data->trans_enc = NULL;
+	conn_data->trans_enc_head_received = false;
+	conn_data->chunk_size = 0;
+}
+
+static inline void reset_conn_data(struct conn_data *conn_data) {
+	reset_mesg_limits(conn_data);
+	conn_data->msg_cnt = 0;
+	memset(conn_data->ipaddr_str, 0, sizeof(*conn_data->ipaddr_str) * IP_ADDR_LEN);
+	reset_token_buff(conn_data);
+}
+
+static struct conn_data *get_conn_data(int fd) {
+	struct conn_data *ret = NULL;
+	size_t i = 0;
+	for (; i < MAX_CONN_COUNT; i++) {
+		if (conn_data_pool[i].fd == -1) {
+			if (ret == NULL) {
+				// reserve slot
+				conn_data_pool[i].fd = fd;
+				reset_conn_data(&conn_data_pool[i]);
+				ret = &conn_data_pool[i];
+			} else // We break later to check if there is at least one more free slot
+				break;
+		}
+	}
+	if (i == MAX_CONN_COUNT)
+		event_del(accept_ev);
+	return ret;
+}
+
+static void close_conn(struct conn_data *conn_data) {
+	DEBUG_PRINT("http - closed connection, fd: %d\n",conn_data->fd);
+	event_del(conn_data->read_ev);
+	event_del(conn_data->keep_alive_tout_ev);
+	event_del(conn_data->inac_tout_ev);
+	close(conn_data->fd);
+	conn_data->fd = -1;
+	event_add(accept_ev, NULL);
+}
+
+static inline int send_resp(struct conn_data *conn_data, char *mesg) {
+	if (send_all(conn_data->fd, mesg, strlen(mesg)) != 0) {
+		DEBUG_PRINT("http - error - could not send to peer\n");
+		return -1;
+	} else {
+		return 0;
+	}
+}
+
+/*
+ * Allocates exact needed amount of memory and fills buffer with string time representation
+ */
+static void fill_time(char **buff) {
+	DEBUG_PRINT("http - fill time\n");
+	time_t rawtime;
+	time(&rawtime);
+	struct tm *timeinfo = gmtime(&rawtime);
+	char *time_str = malloc(TIME_STRING_SIZE);
+	strftime(time_str, TIME_STRING_SIZE, TIME_FORMAT, timeinfo);
+	*buff = time_str;
+}
+
+static int send_bad_req(struct conn_data *conn_data) {
+	DEBUG_PRINT("http - send bad req\n");
+	char *time_str;
+	fill_time(&time_str);
+	char *mesg;
+	concat_mesg(&mesg, 3, BAD_REQ_PART1, time_str, BAD_REQ_PART2);
+	int ret = send_resp(conn_data, mesg);
+	free(time_str);
+	free(mesg);
+	return ret;
+}
+
+static int send_uri_too_long(struct conn_data *conn_data) {
+	DEBUG_PRINT("http - send uri too long\n");
+	char *time_str;
+	fill_time(&time_str);
+	char *mesg;
+	concat_mesg(&mesg, 3, URI_TOO_LONG_PART1, time_str, URI_TOO_LONG_PART2);
+	int ret = send_resp(conn_data, mesg);
+	free(time_str);
+	free(mesg);
+	return ret;
+}
+
+static int send_unauth(struct conn_data *conn_data) {
+	DEBUG_PRINT("http - send unauth\n");
+	char *time_str;
+	fill_time(&time_str);
+	char *mesg;
+	concat_mesg(&mesg, 3, UNAUTH_REQ_PART1, time_str, UNAUTH_REQ_PART2);
+	int ret = send_resp(conn_data, mesg);
+	free(time_str);
+	free(mesg);
+	return ret;
+}
+
+#define FLOW_GUARD_WITH_RESP(cmd, conn_data) do { \
+		if (cmd) { \
+			send_bad_req(conn_data); \
+			return -1; \
+		} \
+	} while (0)
+
+static void report_connect(struct conn_data *conn_data) {
+	struct proxy_data data;
+	data.ts = time(NULL);
+	data.type = TYPE;
+	data.ip = conn_data->ipaddr_str;
+	data.action = CONNECT_EV;
+	data.data = NULL;
+	data.data_len = 0;
+	if (proxy_report(report_fd, &data) !=0) {
+		DEBUG_PRINT("http - error - couldn't report connect\n");
+		exit_code = EXIT_FAILURE;
+		event_base_loopbreak(ev_base);
+	}
 }
 
 static void report_message(struct conn_data *conn_data) {
-    struct strpair data[] = {
-        {"method", conn_data->http_method->name},
-        {"url", conn_data->url},
-        {"user-id", conn_data->user_id},
-        {"password", conn_data->password},
-        {"user-agent",conn_data->user_agent},
-    };
-    if (!proxy_report(report_fd, data, sizeof(data) / sizeof(*data), "message", conn_data->ipaddr_str)) {
-        DEBUG_PRINT("http error - could not report login");
-        kill(getppid(),SIGINT);
-    }
+	struct uint8_t_pair msg[] = {
+		{METHOD, strlen(METHOD), conn_data->method, conn_data->method_len},
+		{URL, strlen(URL), conn_data->url, conn_data->url_len},
+		{AUTH, strlen(AUTH), conn_data->auth, conn_data->auth_len},
+		{USER_AG, strlen(USER_AG), conn_data->user_ag, conn_data->user_ag_len},
+	};
+	struct proxy_data data;
+	data.ts = time(NULL);
+	data.type = TYPE;
+	data.ip = conn_data->ipaddr_str;
+	data.action = MSG_EV;
+	data.data = msg;
+	data.data_len = sizeof(msg) / sizeof(*msg);
+	if (proxy_report(report_fd, &data) !=0) {
+		DEBUG_PRINT("http - error - couldn't report message\n");
+		exit_code = EXIT_FAILURE;
+		event_base_loopbreak(ev_base);
+	}
 }
 
-static inline void clear_token_buff(struct conn_data *conn_data) {
-    memset(conn_data->token_buffer, 0, sizeof(*conn_data->token_buffer) * HTTP_MAX_TOKEN_BUFFER_LEN);
-    conn_data->token_buffer_write_ptr = conn_data->token_buffer;
-    conn_data->token_buffer_free_space = HTTP_MAX_TOKEN_BUFFER_LEN - 1;
+/*
+Return length of the trailing white spaces in the end of the string.
+Returns at most len.
+*/
+size_t get_trail_ws_len(uint8_t *str, size_t len) {
+	assert(str != NULL);
+	size_t ws_len = 0;
+	for (size_t i = 0; i < len; i++)
+		if (str[len - i - 1] != SP && str[len - i - 1] != HT)
+			break;
+		else
+			ws_len++;
+	return ws_len;
 }
 
-static inline void clear_content_len(struct conn_data *conn_data) {
-    memset(conn_data->content_len,0,sizeof(*conn_data->content_len) * HTTP_CONTENT_LENGTH_SIZE);
-    conn_data->content_len_write_index = 0;
+/*
+Return length of the preceding whitespaces at the beginning of string.
+Returns at most len.
+*/
+size_t get_prec_ws_len(uint8_t *str, size_t len) {
+	assert(str != NULL);
+	size_t ws_len = 0;
+	for (size_t i = 0; i < len; i++)
+		if (str[i] != SP && str[i] != HT)
+			break;
+		else
+			ws_len++;
+	return ws_len;
 }
 
-static inline void clear_transfer_encoding(struct conn_data *conn_data) {
-    memset(conn_data->transfer_encoding,0,sizeof(*conn_data->transfer_encoding) * HTTP_TRANSFER_ENCODING_SIZE);
-    conn_data->transfer_encoding_write_index = 0;
+static inline void skip_bytes(size_t *to_skip, uint8_t **buff, size_t *bytes_to_proc) {
+	size_t diff = MY_MIN(*to_skip, *bytes_to_proc);
+	*bytes_to_proc -= diff;
+	*to_skip -= diff;
+	*buff += diff;
 }
 
-static inline void clear_url(struct conn_data *conn_data) {
-    memset(conn_data->url, 0, sizeof(*conn_data->url) * HTTP_MAX_URI_LEN);
-    conn_data->url_write_ptr = conn_data->url;
-    conn_data->url_free_space = HTTP_MAX_URI_LEN - 1;
+static int on_mesg_end(struct conn_data *conn_data) {
+	DEBUG_PRINT("http - on mesg end\n");
+	report_message(conn_data);
+	reset_mesg_limits(conn_data);
+	FLOW_GUARD(send_unauth(conn_data));
+	conn_data->msg_cnt++;
+	FLOW_GUARD(conn_data->msg_cnt == MESSAGES_LIMIT);
+	return 0;
 }
 
-static void clear_conn_data(struct conn_data *conn_data) {
-    conn_data->fd = -1;
-    memset(conn_data->read_ev, 0, sizeof(*conn_data->read_ev));
-    memset(conn_data->timeout_ev, 0, sizeof(*conn_data->timeout_ev));
-    memset(conn_data->ipaddr_str, 0, sizeof(*conn_data->ipaddr_str) * INET6_ADDRSTRLEN);
-    conn_data->state = PROCESS_METHOD;
-    conn_data->run = false;
-    clear_token_buff(conn_data);
-    conn_data->http_method = NULL;
-    clear_url(conn_data);
-    conn_data->header_name = NULL;
-    memset(conn_data->user_id, 0, sizeof(*conn_data->user_id) * HTTP_MAX_TOKEN_BUFFER_LEN);
-    memset(conn_data->password, 0, sizeof(*conn_data->password) * HTTP_MAX_TOKEN_BUFFER_LEN);
-    memset(conn_data->user_agent, 0, sizeof(*conn_data->user_agent) * HTTP_MAX_TOKEN_BUFFER_LEN);
-    clear_content_len(conn_data);
-    clear_transfer_encoding(conn_data);
-    conn_data->char_read_count = 0;
-    conn_data->try_limit = 0;
-    conn_data->try_counter = 0;
-    conn_data->body_len_to_skip = 0;
-    conn_data->chunk_size_to_skip = 0;
+static int proc_chunk(struct conn_data *conn_data, uint8_t **buffer, size_t *bytes_to_proc) {
+	DEBUG_PRINT("http - proc chunk\n");
+	skip_bytes(&conn_data->chunk_size, buffer, bytes_to_proc);
+	if (conn_data->chunk_size == 0)
+		conn_data->state = PROC_CHUNK_END;
+	return 0;
 }
 
-static struct conn_data *get_conn_data(int connection_fd) {
-    unsigned i = 0;
-    // not used structs have fd set to -1, we don't need separate flags
-    while (i < HTTP_MAX_CONN_COUNT && conn_data_pool[i].fd != -1)
-        i++;
-    if (i >= HTTP_MAX_CONN_COUNT) {
-        DEBUG_PRINT("http - no free struct conn_data - connection limit reached\n");
-        return NULL;
-    }
-    clear_conn_data(&conn_data_pool[i]);
-    conn_data_pool[i].fd = connection_fd;
-    conn_data_pool[i].try_limit = range_rand(HTTP_CRED_MIN_RANGE, HTTP_CRED_MAX_RANGE);
-    return &conn_data_pool[i];
+static int proc_body(struct conn_data *conn_data, uint8_t **buffer, size_t *bytes_to_proc) {
+	DEBUG_PRINT("http - proc body\n");
+	skip_bytes(&conn_data->con_len, buffer, bytes_to_proc);
+	if (conn_data->con_len == 0)
+		return on_mesg_end(conn_data);
+	return 0;
 }
 
-static void do_close(struct conn_data *conn_data) {
-    DEBUG_PRINT("http - do close, fd: %d\n",conn_data->fd);
-    // delete events from base
-    event_del(conn_data->read_ev);
-    event_del(conn_data->timeout_ev);
-    close(conn_data->fd);
-    // put conn_data back to pool
-    conn_data->fd = -1;
+static int proc_chunk_end(struct conn_data *conn_data) {
+	DEBUG_PRINT("http - proc chunk end\n");
+	size_t token_len = TOKEN_BUFF_LEN - conn_data->token_buff_free_len;
+	// must be empty line
+	FLOW_GUARD_WITH_RESP(token_len != 0, conn_data);
+	conn_data->state = PROC_CHUNK_SIZE;
+	return 0;
 }
 
-static inline void send_response(struct conn_data *conn_data, uint8_t *response) {
-    if (!send_all(conn_data->fd, response, strlen(response))) {
-        // if not possible send to peer, close connection
-        DEBUG_PRINT("http - could not send response\n");
-        conn_data->run = false;
-        do_close(conn_data);
-    }
+static int check_method(uint8_t *method, size_t len) {
+	DEBUG_PRINT("http - check method\n");
+	for (size_t i = 0; i < len; i++)
+		if (method[i] <= 32 || method[i] >= 127 )
+			return -1;
+	return 0;
 }
 
-static void ask_for_credentials(struct conn_data *conn_data) {
-    if (conn_data->try_counter < conn_data->try_limit) {
-        // ask for login
-        send_response(conn_data, HTTP_401_REP);
-        conn_data->try_counter++;
-    } else {
-        // send forbiden
-        send_response(conn_data, HTTP_403_REP);
-        do_close(conn_data);
-    }
+static int check_url(uint8_t *url, size_t len) {
+	DEBUG_PRINT("http - check url\n");
+	for (size_t i = 0; i < len; i++)
+		if (url[i] <= 32 || url[i] == 127 )
+			return -1;
+	return 0;
 }
 
-static void do_reply(struct conn_data *conn_data) {
-    switch (conn_data->http_method->method_type) {
-        case GET: case HEAD:
-            ask_for_credentials(conn_data);
-            break;
-        case POST: case PUT: case DELETE: case CONNECT: case OPTIONS: case TRACE: case PATCH:
-            send_response(conn_data, HTTP_405_REP);
-            break;
-        default:
-            DEBUG_PRINT("http - Error! Send reply unknown state!\n");
-            break;
-    }
+static int check_version(uint8_t *version, size_t len) {
+	DEBUG_PRINT("http - check version\n");
+	if (len != 8 ||
+		strncmp(version, HTTP_VERSION, strlen(HTTP_VERSION)) != 0 ||
+		version[5] < '0' || version[5] > '9' ||
+		version[6] != '.' ||
+		version[7] < '0' || version[7] > '9' )
+		return -1;
+	return 0;
 }
 
-
-/* return true if token delim found or false if NOT found
-if store_buffer_write_ptr & store_buffer_free_space is NULL we just SHIFT read buffer behind end of token */
-static bool buffer_token(uint8_t delim, uint8_t **store_buffer_write_ptr, size_t *store_buffer_free_space, uint8_t **read_buffer, size_t *size_to_read, uint8_t* token_name) {
-    bool ret = false;
-    // if token end is not found - token len is read buffer size
-    size_t token_len = *size_to_read;
-    if (token_len == 0)
-        return ret;
-    size_t read_buffer_shift = 0;
-    // find delim
-    // uint8_t *token_end_ptr = strchr(*read_buffer, delim);
-    uint8_t *token_end_ptr = memchr(*read_buffer, delim, token_len);
-    if (token_end_ptr) {
-        // token end found -> go to next state
-        token_len = (int)(token_end_ptr - *read_buffer);
-        // we want to shift behind delim
-        read_buffer_shift += 1;
-        ret = true;
-    }
-    if (store_buffer_write_ptr && store_buffer_free_space) {
-        // copy token to its buffer
-        if (*store_buffer_free_space > 0) {
-            int copy_len;
-            // check for free space in store buffer
-            if (token_len <= *store_buffer_free_space) {
-                // all token fits in the store buffer
-                copy_len = token_len;
-            } else {
-                // not all data fits in store buffer
-                copy_len = *store_buffer_free_space;
-                // DEBUG_PRINT("Skipped data in %s\n", token_name);
-            }
-            memcpy(*store_buffer_write_ptr, *read_buffer, copy_len);
-            *store_buffer_write_ptr += sizeof(**store_buffer_write_ptr) * copy_len;
-            *store_buffer_free_space -= copy_len;
-
-        } else {
-            // no space in store buffer
-            DEBUG_PRINT("http - No space skip data in %s\n", token_name);
-        }
-    } else {
-        // we skip intentionaly
-        DEBUG_PRINT("http - Intentional skip data in %s\n", token_name);
-    }
-    // shift by token len
-    read_buffer_shift += token_len;
-    *read_buffer += sizeof(**read_buffer) * read_buffer_shift;
-    *size_to_read -= read_buffer_shift;
-    return ret;
+static int proc_req_line(struct conn_data *conn_data) {
+	DEBUG_PRINT("http - proc req line\n");
+	size_t token_len = TOKEN_BUFF_LEN - conn_data->token_buff_free_len;
+	uint8_t *first_sp = memchr(conn_data->token_buff, SP, token_len);
+	FLOW_GUARD_WITH_RESP(first_sp == NULL, conn_data);
+	size_t rest_len = token_len - (first_sp - conn_data->token_buff) -1;
+	uint8_t *second_sp = memchr(first_sp + 1, SP, rest_len);
+	FLOW_GUARD_WITH_RESP(second_sp == NULL, conn_data);
+	FLOW_GUARD_WITH_RESP((first_sp + 1) == second_sp, conn_data);
+	uint8_t *method_ptr = conn_data->token_buff;
+	size_t method_len =  first_sp - conn_data->token_buff;
+	uint8_t *url_ptr = first_sp + 1;
+	size_t url_len = second_sp - url_ptr;
+	uint8_t *version_ptr = second_sp + 1;
+	size_t version_len = token_len - (second_sp - conn_data->token_buff) - 1;
+	FLOW_GUARD_WITH_RESP(check_version(version_ptr, version_len), conn_data);
+	FLOW_GUARD_WITH_RESP(check_method(method_ptr, method_len), conn_data);
+	FLOW_GUARD_WITH_RESP(check_url(url_ptr, url_len), conn_data);
+	memcpy(conn_data->method, method_ptr, method_len);
+	conn_data->method_len = method_len;
+	memcpy(conn_data->url, url_ptr, url_len);
+	conn_data->url_len = url_len;
+	conn_data->state = PROC_HEADER;
+	return 0;
 }
 
-static void check_byte(uint8_t uint8_t_to_check, enum state succes_state, enum state failure_state,
-                            struct conn_data *conn_data, uint8_t **buffer, size_t *size_to_read) {
-    // by default stay in current state
-    enum state ret = conn_data_pool->state;
-    bool to_run = true;
-    if (*size_to_read == 0) {
-        // if no uint8_ts in buffer pause
-        to_run = false;
-        goto end;
-    }
-    // check if first uint8_t in buffer is our uint8_tacter
-    if (**buffer == uint8_t_to_check) {
-        ret = succes_state;
-        // shift buffer
-        (*buffer)++;
-        (*size_to_read)--;
-    } else {
-        ret = failure_state;
-    }
-    end:
-    conn_data->state = ret;
-    conn_data->run = to_run;
+static int check_header_name(uint8_t *name, size_t len) {
+	DEBUG_PRINT("http - check header\n");
+	for (size_t i = 0; i < len; i++)
+		if (name[i] <= 32 || name[i] >= 127 || name[i] == 34 || name[i] == 40 ||
+			name[i] == 41 || name[i] == 44 || name[i] == 47 ||
+			(name[i] >= 58 && name[i] <= 64) || (name[i] >= 91 && name[i] <= 93) ||
+			name[i] == 123 || name[i] == 125)
+			return -1;
+	return 0;
 }
 
-static void skip_bytes(size_t *size_to_skip, struct conn_data *conn_data, uint8_t **buffer, size_t *size_to_read ) {
-    size_t to_skip;
-    if (*size_to_skip >= *size_to_read) {
-        // skip all buffer
-        to_skip = (unsigned long int)*size_to_read;
-    } else {
-        // skip only part
-        to_skip = *size_to_skip;
-    }
-    // skip
-    *buffer += sizeof(**buffer) * to_skip;
-    *size_to_read -= (int)to_skip;
-    *size_to_skip -= to_skip;
+static int check_header_val(uint8_t *val, size_t len) {
+	DEBUG_PRINT("http - check header val\n");
+	for (size_t i = 0; i < len; i++)
+		if ((val[i] <= 8) || (val[i] >= 10 && val[i] <= 31) || val[i] == 127)
+			return -1;
+	return 0;
 }
 
-static void proc_method(struct conn_data *conn_data, uint8_t **buffer, size_t *size_to_read) {
-    // if token end not found - stay in current state and stop
-    enum state ret = PROCESS_METHOD;
-    bool to_run = false;
-    if (buffer_token('\x20', &(conn_data->token_buffer_write_ptr), &(conn_data->token_buffer_free_space), buffer, size_to_read, "METHOD")) {
-        // token end found in read buffer -> go to next state and run
-        ret = PARSE_METHOD;
-        to_run = true;
-    }
-    conn_data->state = ret;
-    conn_data->run = to_run;
+static int proc_con_len_head(struct conn_data *conn_data, uint8_t *val, size_t len) {
+	DEBUG_PRINT("http - proc con len head\n");
+	if (conn_data->con_len > 0)
+		// the value has been already assigned - error
+		conn_data->con_len = -1;
+	if (conn_data->con_len == 0) {
+		uint8_t sep[] = {HT, SP};
+		tokens_cnt = tokenize(val, len, tokens, TOKENS_LEN, sep, sizeof(sep) / sizeof(*sep));
+		FLOW_GUARD_WITH_RESP(tokens_cnt != 1, conn_data);
+		// we have to create c-string for strtol
+		// in this stage it is safe
+		tokens[0].start_ptr[tokens[0].len] = 0 ;
+		char *end_ptr;
+		errno = 0;
+		int64_t result = strtoll(tokens[0].start_ptr, &end_ptr, 10);
+		if ((errno == ERANGE && (result == LLONG_MAX || result == LLONG_MIN)) || // value out of range of long long int
+			(result == 0 && errno != 0) || // another conversion error
+			end_ptr == (char *)tokens[0].start_ptr || // no digits
+			result < 0) // negative value
+			conn_data->con_len = -1;
+		else
+			conn_data->con_len = result;
+	}
+	return 0;
 }
 
-static void parse_method(struct conn_data *conn_data,uint8_t **buffer, size_t *size_to_read) {
-    // if token end not found - stay in current state
-    enum state ret = SYNTAX_ERROR;
-    bool to_run = true;
-    conn_data->http_method = http_method_lookup(conn_data->token_buffer, strlen(conn_data->token_buffer));
-    if (conn_data->http_method)
-        // token end found in read buffer -> go to next state and run
-        ret = PROCESS_URL;
-    clear_token_buff(conn_data);
-    conn_data->state = ret;
-    conn_data->run = to_run;
+static int proc_trans_enc_head(struct conn_data *conn_data, uint8_t *val, size_t len) {
+	DEBUG_PRINT("http - proc trans enc head\n");
+	conn_data->trans_enc_head_received = true;
+	uint8_t sep[] = {HT, SP, COMMA};
+	tokens_cnt = tokenize(val, len, tokens, TOKENS_LEN, sep, sizeof(sep) / sizeof(*sep));
+	for (size_t i = 0; i < tokens_cnt; i++)
+		conn_data->trans_enc = http_transfer_encoding_lookup(tokens[i].start_ptr, tokens[i].len);
+	return 0;
 }
 
-static void proc_url(struct conn_data *conn_data, uint8_t **buffer, size_t *size_to_read) {
-    // if token end not found - stay in current state
-    enum state ret = PROCESS_URL;
-    bool to_run = false;
-    // we could use token buffer here, but just want to copy URL token
-    if (buffer_token('\x20', &(conn_data->url_write_ptr), &(conn_data->url_free_space), buffer,size_to_read, "URL")) {
-        // token end found in read buffer -> go to next state and run
-        ret = PROCESS_HTTP_VERSION;
-        to_run = true;
-    }
-    conn_data->state = ret;
-    conn_data->run = to_run;
+static int proc_auth_head(struct conn_data *conn_data, uint8_t *val, size_t len) {
+	DEBUG_PRINT("http - proc auth head\n");
+	uint8_t *val_start_ptr = val;
+	size_t val_len = len;
+	size_t prec_ws_len = get_prec_ws_len(val_start_ptr, val_len);
+	val_start_ptr += prec_ws_len;
+	val_len -= prec_ws_len;
+	val_len -= get_trail_ws_len(val_start_ptr, val_len);
+	memcpy(conn_data->auth, val_start_ptr, val_len);
+	conn_data->auth_len = val_len;
+	return 0;
 }
 
-static void proc_http_version(struct conn_data *conn_data, uint8_t **buffer, size_t *size_to_read) {
-    // if token end not found - stay in current state
-    enum state ret = PROCESS_HTTP_VERSION;
-    bool to_run = false;
-    // we don't care about http version token content
-    if (buffer_token('\x0D', NULL, NULL, buffer, size_to_read, "VERSION")) {
-        // token end found in read buffer -> go to next state and run
-        ret = PROCESS_START_LINE_END;
-        to_run = true;
-    }
-    conn_data->state = ret;
-    conn_data->run = to_run;
+static int proc_user_ag_head(struct conn_data *conn_data, uint8_t *val, size_t len) {
+	DEBUG_PRINT("http - proc user ag head\n");
+	uint8_t *val_start_ptr = val;
+	size_t val_len = len;
+	size_t prec_ws_len = get_prec_ws_len(val_start_ptr, val_len);
+	val_start_ptr += prec_ws_len;
+	val_len -= prec_ws_len;
+	val_len -= get_trail_ws_len(val_start_ptr, val_len);
+	memcpy(conn_data->user_ag, val_start_ptr, val_len);
+	conn_data->user_ag_len = val_len;
+	return 0;
 }
 
-static void proc_start_line_end(struct conn_data *conn_data, uint8_t **buffer, size_t *size_to_read) {
-    check_byte('\x0A',IS_HEADERS_END1,SYNTAX_ERROR,conn_data,buffer,size_to_read);
+static int proc_header(struct conn_data *conn_data) {
+	DEBUG_PRINT("http - proc header\n");
+	size_t token_len = TOKEN_BUFF_LEN - conn_data->token_buff_free_len;
+	if (token_len == 0) {
+		// empty line
+		if (conn_data->trans_enc_head_received == true) {
+			if (conn_data->trans_enc != NULL &&
+				conn_data->trans_enc->transfer_encoding_type == CHUNKED) {
+				// chunked body
+				conn_data->state = PROC_CHUNK_SIZE;
+				return 0;
+			} else {
+				// error
+				send_bad_req(conn_data);
+				return -1;
+			}
+		} else {
+			if (conn_data->con_len == -1) {
+				// error
+				send_bad_req(conn_data);
+				return -1;
+			} else if (conn_data->con_len == 0) {
+				// no body - end of the message here
+				return on_mesg_end(conn_data);
+			} else {
+				// normal body
+				conn_data->state = PROC_BODY;
+				return 0;
+			}
+		}
+	} else {
+		conn_data->header_cnt++;
+		FLOW_GUARD_WITH_RESP(conn_data->header_cnt == HEADER_LIMIT, conn_data);
+		uint8_t *double_dot = memchr(conn_data->token_buff, DOUBLE_DOT, token_len);
+		FLOW_GUARD_WITH_RESP(double_dot == NULL, conn_data);
+		uint8_t *header_name_str = conn_data->token_buff;
+		size_t header_name_str_len = double_dot - conn_data->token_buff;
+		uint8_t *header_val_str = double_dot + 1;
+		size_t header_val_str_len = token_len - (double_dot - conn_data->token_buff) - 1;
+		FLOW_GUARD_WITH_RESP(check_header_name(header_name_str, header_name_str_len), conn_data);
+		FLOW_GUARD_WITH_RESP(check_header_val(header_val_str, header_val_str_len), conn_data);
+		struct http_header *header = http_header_name_lookup(header_name_str, header_name_str_len);
+		if (header != NULL) {
+			// known header
+			switch (header->header_type) {
+				case AUTHORIZATION:
+					return proc_auth_head(conn_data, header_val_str, header_val_str_len);
+				case USER_AGENT:
+					return proc_user_ag_head(conn_data, header_val_str, header_val_str_len);
+				case CONTENT_LENGTH:
+					return proc_con_len_head(conn_data, header_val_str, header_val_str_len);
+				case TRANSFER_ENCODING:
+					return proc_trans_enc_head(conn_data, header_val_str, header_val_str_len);
+				default:
+					DEBUG_PRINT("http - error - proc header default\n");
+					return -1;
+			}
+		}
+		return 0;
+	}
 }
 
-static void is_headers_end1(struct conn_data *conn_data, uint8_t **buffer, size_t *size_to_read) {
-    check_byte('\x0D',IS_HEADERS_END2,PROCESS_HEADER,conn_data,buffer,size_to_read);
+static int check_chunk_size_ext(uint8_t *ext,  size_t len) {
+	DEBUG_PRINT("http - check chunk size xt\n");
+	for (size_t i = 0; i < len; i++)
+		if (ext[i] < 32 || ext[i] >= 127 )
+			return -1;
+	return 0;
 }
 
-static void is_headers_end2(struct conn_data *conn_data, uint8_t **buffer, size_t *size_to_read) {
-    check_byte('\x0A',HEADERS_END,SYNTAX_ERROR,conn_data,buffer,size_to_read);
+static int proc_chunk_size(struct conn_data *conn_data) {
+	DEBUG_PRINT("http - proc chunk size\n");
+	size_t token_len = TOKEN_BUFF_LEN - conn_data->token_buff_free_len;
+	FLOW_GUARD_WITH_RESP(token_len == 0, conn_data);
+	size_t chunk_size_str_len = token_len;
+	uint8_t *semicolon = memchr(conn_data->token_buff, SEMICOLON, token_len);
+	if (semicolon != NULL) {
+		chunk_size_str_len = semicolon - conn_data->token_buff + 1;
+		FLOW_GUARD_WITH_RESP(check_chunk_size_ext(semicolon + 1, token_len - chunk_size_str_len), conn_data);
+	}
+	// parse chunk size
+	// we have to create c-string for strtol
+	// in this stage it is safe
+	conn_data->token_buff[chunk_size_str_len] = 0;
+	char *end_ptr;
+	errno = 0;
+	int64_t result = strtoll(conn_data->token_buff, &end_ptr, 16);
+	FLOW_GUARD_WITH_RESP(((errno == ERANGE && (result == LLONG_MAX || result == LLONG_MIN)) || // value out of range of long long int
+		(result == 0 && errno != 0) || // another conversion error
+		end_ptr == (char *)conn_data->token_buff || // no digits
+		result < 0), // negative value
+		conn_data);
+	conn_data->chunk_size = result;
+	if (result == 0)
+		conn_data->state = PROC_TRAILER;
+	else
+		conn_data->state = PROC_CHUNK;
+	return 0;
 }
 
-static void proc_header(struct conn_data *conn_data, uint8_t **buffer, size_t *size_to_read) {
-    // if token end not found - stay in current state
-    enum state ret = PROCESS_HEADER;
-    bool to_run = false;
-    if (buffer_token('\x0D', &(conn_data->token_buffer_write_ptr), &(conn_data->token_buffer_free_space), buffer, size_to_read, "HEADER")) {
-        // token end found in read buffer -> go to next state and run
-        ret = PROCESS_HEADER_END;
-        to_run = true;
-    }
-    conn_data->state = ret;
-    conn_data->run = to_run;
+static int proc_trailer(struct conn_data *conn_data) {
+	DEBUG_PRINT("http - proc trailer\n");
+	size_t token_len = TOKEN_BUFF_LEN - conn_data->token_buff_free_len;
+	if (token_len == 0) {
+		// end of message
+		return on_mesg_end(conn_data);
+	} else {
+		// some trailer = header
+		// here should not be headers we are interested in
+		// treat them as unknown headers
+		conn_data->header_cnt++;
+		FLOW_GUARD_WITH_RESP(conn_data->header_cnt == HEADER_LIMIT, conn_data);
+		uint8_t *double_dot = memchr(conn_data->token_buff, DOUBLE_DOT, token_len);
+		FLOW_GUARD_WITH_RESP(double_dot == NULL, conn_data);
+		uint8_t *header_name_str = conn_data->token_buff;
+		size_t header_name_str_len = double_dot - conn_data->token_buff;
+		uint8_t *header_val_str = double_dot + 1;
+		size_t header_val_str_len = token_len - (double_dot - conn_data->token_buff) - 1;
+		FLOW_GUARD_WITH_RESP(check_header_name(header_name_str, header_name_str_len), conn_data);
+		return check_header_val(header_val_str, header_val_str_len);
+	}
 }
 
-static void proc_header_end(struct conn_data *conn_data, uint8_t **buffer, size_t *size_to_read) {
-    check_byte('\x0A',PARSE_HEADER,SYNTAX_ERROR,conn_data,buffer,size_to_read);
+static int proc_line(struct conn_data *conn_data, uint8_t **buffer, size_t *bytes_to_proc) {
+	DEBUG_PRINT("http - proc line\n");
+	uint8_t *line_sep = memchr(*buffer, LF, *bytes_to_proc);
+	size_t bytes_to_buff = line_sep != NULL ? (line_sep - *buffer + 1) : *bytes_to_proc;
+	if (bytes_to_buff <= conn_data->token_buff_free_len) {
+		memcpy(conn_data->token_buff_wrt_ptr, *buffer, bytes_to_buff);
+		conn_data->token_buff_wrt_ptr += bytes_to_buff;
+		conn_data->token_buff_free_len -= bytes_to_buff;
+		if (line_sep != NULL) {
+			// we found LF, check for CR
+			size_t token_len = TOKEN_BUFF_LEN - conn_data->token_buff_free_len;
+			FLOW_GUARD_WITH_RESP(((token_len < 2) || (conn_data->token_buff[token_len - 2] != CR)), conn_data);
+			// strip CRLF from line buffer
+			conn_data->token_buff_free_len += 2;
+			switch (conn_data->state) {
+				case PROC_REQ_LINE:
+					FLOW_GUARD(proc_req_line(conn_data));
+					break;
+				case PROC_HEADER:
+					FLOW_GUARD(proc_header(conn_data));
+					break;
+				case PROC_CHUNK_SIZE:
+					FLOW_GUARD(proc_chunk_size(conn_data));
+					break;
+				case PROC_TRAILER:
+					FLOW_GUARD(proc_trailer(conn_data));
+					break;
+				case PROC_CHUNK_END:
+					FLOW_GUARD(proc_chunk_end(conn_data));
+					break;
+				default:
+					DEBUG_PRINT("http - proc line - default 1\n");
+					return -1;
+			}
+			reset_token_buff(conn_data);
+		}
+	} else {
+		switch (conn_data->state) {
+			case PROC_REQ_LINE:
+				send_uri_too_long(conn_data);
+				break;
+			case PROC_HEADER:
+			case PROC_CHUNK_SIZE:
+			case PROC_TRAILER:
+			case PROC_CHUNK_END:
+				send_bad_req(conn_data);
+				break;
+		}
+		return -1;
+	}
+	*buffer += bytes_to_buff;
+	*bytes_to_proc -= bytes_to_buff;
+	return 0;
 }
 
-static bool process_authorization(struct conn_data *conn_data, uint8_t *header_val) {
-    DEBUG_PRINT("process authorization\n");
-    header_val = skip_prec_ws(header_val, strlen(header_val));
-    strip_trail_ws(header_val, strlen(header_val));
-    // find SP delimiting Basic keyword with encoded credentials
-    uint8_t *delim = strchr(header_val, '\x20');
-    if (!delim) {
-        DEBUG_PRINT("http - proces authorization error - mising space between Basic and credentials\n");
-        return false;
-    }
-    *delim = '\x00';
-    if (strcasecmp(header_val,"basic")) {
-        DEBUG_PRINT("http - proces authorization error - basic token doesnt match\n");
-        return false;
-    }
-    header_val = delim+1;
-    // reset decode buffer
-    if (!base64_is_valid(header_val,strlen(header_val))) {
-        DEBUG_PRINT("http - Error! process authorization - not valid base64 string\n");
-        return false;
-    }
-    memset(decode_buffer,0,sizeof(*decode_buffer) * HTTP_MAX_TOKEN_BUFFER_LEN);
-    base64_decodestate s;
-    base64_init_decodestate(&s);
-    int result = base64_decode_block(header_val, strlen(header_val), decode_buffer, &s);
-    // find double dot - user-id : password delimeter
-    delim = strchr(decode_buffer, '\x3A');
-    if (!delim) {
-        DEBUG_PRINT("http - Error! process authoriztion - missing double dot :\n");
-        return false;
-    }
-    // reset user-id field
-    memset(conn_data->user_id,0,sizeof(*(conn_data->user_id)) * HTTP_MAX_TOKEN_BUFFER_LEN);
-    copy_util(decode_buffer, (size_t)(delim - decode_buffer), conn_data->user_id, HTTP_MAX_TOKEN_BUFFER_LEN);
-    // reset password field
-    memset(conn_data->password,0,sizeof(*(conn_data->password)) * HTTP_MAX_TOKEN_BUFFER_LEN);
-    copy_util(delim, strlen(++delim), conn_data->password, HTTP_MAX_TOKEN_BUFFER_LEN);
-    return true;
+static void proc_bytes(struct conn_data *conn_data, uint8_t *buff, size_t buff_len) {
+	DEBUG_PRINT("http - proc bytes - start\n");
+	bool run = true;
+	while (buff_len > 0 && run) {
+		switch (conn_data->state) {
+			case PROC_REQ_LINE:
+			case PROC_HEADER:
+			case PROC_CHUNK_SIZE:
+			case PROC_TRAILER:
+			case PROC_CHUNK_END:
+				if (proc_line(conn_data, &buff, &buff_len) != 0) {
+					close_conn(conn_data);
+					run = false;
+				}
+				break;
+			case PROC_BODY:
+				if (proc_body(conn_data, &buff, &buff_len) != 0) {
+					close_conn(conn_data);
+					run = false;
+				}
+				break;
+			case PROC_CHUNK:
+				if (proc_chunk(conn_data, &buff, &buff_len) != 0) {
+					close_conn(conn_data);
+					run = false;
+				}
+				break;
+			default:
+				DEBUG_PRINT("http - proc bytes - default\n");
+				close_conn(conn_data);
+				run = false;
+				break;
+		}
+	}
+	DEBUG_PRINT("http - proc bytes - end\n");
 }
 
-static bool proc_user_agent(struct conn_data *conn_data, uint8_t *header_val) {
-    header_val = skip_prec_ws(header_val, strlen(header_val));
-    strip_trail_ws(header_val, strlen(header_val));
-    copy_util(header_val, strlen(header_val), conn_data->user_agent, HTTP_MAX_TOKEN_BUFFER_LEN);
-    return true;
-}
-
-static void inline handle_con_len_value(struct conn_data *conn_data, char *header_val) {
-    char *end_ptr;
-    errno = 0;
-    long int result = strtol(header_val, &end_ptr,10);
-    if ((errno == ERANGE && (result == LONG_MAX || result == LONG_MIN)) ||
-        (result == 0 && errno != 0) ||
-        result < 0 ||
-        end_ptr == header_val)
-        // conversion error or negative value
-        result = -1;
-    if (conn_data->content_len_write_index < HTTP_CONTENT_LENGTH_SIZE)
-        (conn_data->content_len)[(conn_data->content_len_write_index)++] = result;
-}
-
-static bool proc_content_length(struct conn_data *conn_data, uint8_t *header_val) {
-    // a message can contain multiple content-length headers or one header with coma seprated values
-    // check for multiple values
-    uint8_t *coma_ptr = strchr(header_val,',');
-    if (coma_ptr) {
-        // coma has been found
-        do {
-            *coma_ptr = '\x00';
-            handle_con_len_value(conn_data,(char*)header_val);
-            header_val = coma_ptr+1;
-        } while(coma_ptr = strchr(header_val,','));
-    }
-    // only one value or last value
-    handle_con_len_value(conn_data,(char*)header_val);
-    return true;
-}
-
-static void inline handle_tran_enc_value(struct conn_data *conn_data, uint8_t *val) {
-    val = skip_prec_ws(val, strlen(val));
-    strip_trail_ws(val, strlen(val));
-    if (conn_data->transfer_encoding_write_index < HTTP_TRANSFER_ENCODING_SIZE) {
-        (conn_data->transfer_encoding)[(conn_data->transfer_encoding_write_index)++] = http_transfer_encoding_lookup(val,strlen(val));
-    }
-}
-
-static bool proc_transfer_encoding(struct conn_data *conn_data, uint8_t *header_val) {
-    // a message can contain multiple content-length headers or one header with coma seprated values
-    // the chunked encoding must be the last encoding otherwise -> 400 bad request
-    uint8_t *coma_ptr = strchr(header_val,',');
-    if (coma_ptr) {
-        // more encodings
-        do {
-            *coma_ptr = '\x00';
-            handle_tran_enc_value(conn_data,header_val);
-            header_val = coma_ptr+1;
-        } while (coma_ptr = strchr(header_val,','));
-    }
-
-    // only one value or last value
-    handle_tran_enc_value(conn_data,header_val);
-    return true;
-}
-
-static void parse_header(struct conn_data *conn_data, uint8_t **buffer, size_t *size_to_read) {
-    bool to_run = true;
-    enum state ret = SYNTAX_ERROR;
-    uint8_t *read_ptr = conn_data->token_buffer;
-    // check for SP and HTAB - no ws should be here
-    if (*read_ptr == '\x20' || *read_ptr == '\x09') {
-        ret = IS_HEADERS_END1;
-        goto end;
-    }
-    // find header name end - double dot :
-    uint8_t *token_delim = strchr(read_ptr, '\x3A');
-    if (!token_delim) {
-        // double dot : not found -> it always should be there
-        // syntax error
-        DEBUG_PRINT("http - Error! parse header - double dot not found\n");
-        goto end;
-    }
-    // replace delim by end of string
-    *token_delim = '\x00';
-    // match header name
-    conn_data->header_name = http_header_name_lookup(read_ptr, strlen(read_ptr));
-    if (!conn_data->header_name) {
-        // known header name not found -> ignore header
-        ret = IS_HEADERS_END1;
-        goto end;
-    }
-    // first uint8_t of header value string
-    uint8_t *header_val = ++token_delim;
-    switch (conn_data->header_name->header_type) {
-        case USER_AGENT:
-            if (proc_user_agent(conn_data, header_val))
-                ret = IS_HEADERS_END1;
-            break;
-        case AUTHORIZATION:
-            if (process_authorization(conn_data, header_val))
-                ret = IS_HEADERS_END1;
-            break;
-        case CONTENT_LENGTH:
-            if (proc_content_length(conn_data, header_val))
-                ret = IS_HEADERS_END1;
-            break;
-        case TRANSFER_ENCODING:
-            if (proc_transfer_encoding(conn_data, header_val))
-                ret = IS_HEADERS_END1;
-            break;
-        default:
-            // theoreticaly not possiblle
-            // goes to SYNTAX ERROR
-            DEBUG_PRINT("http - Error! Recognized unknown header val\n");
-            break;
-    }
-    end:
-    clear_token_buff(conn_data);
-    conn_data->state = ret;
-    conn_data->run = to_run;
-}
-
-static void headers_end(struct conn_data *conn_data, uint8_t **buffer, size_t *size_to_read) {
-    // determines how to deal with message body
-    bool to_run = true;
-    enum state ret = MESSAGE_END;
-    // check if transfer encoding header was captured
-    if (conn_data->transfer_encoding_write_index > 0) {
-        ret = SYNTAX_ERROR;
-        // 1.check if we received transfer encoding and if chunked encoding is last
-        for (size_t i = 0; i < (conn_data->transfer_encoding_write_index - 1); i++) {
-            // check if list has a valid values
-            if (conn_data->transfer_encoding[i]) {
-                if (conn_data->transfer_encoding[i]->transfer_encoding_type == CHUNKED)
-                    // if chunked encoding is included before last value - error
-                    // chunked encoding must be last and applied only once
-                    goto end;
-            } else {
-                // invalid value
-                goto end;
-            }
-        }
-        // check last value written to the list
-        if (conn_data->transfer_encoding[conn_data->transfer_encoding_write_index - 1])
-            if (conn_data->transfer_encoding[conn_data->transfer_encoding_write_index - 1]->transfer_encoding_type == CHUNKED)
-                // do chunked encoding
-                ret = PROCESS_CHUNK_SIZE;
-        goto end;
-    }
-    // check if conntent length header was captured
-    if (conn_data->content_len_write_index) {
-        // 2. check if it has a content len - all values must be >= 0
-        // in case of multiple values all must be same
-        if (conn_data->content_len[0] < 0) {
-            // do close
-            ret = SYNTAX_ERROR;
-            goto end;
-        }
-        for (size_t i = 1; i < conn_data->content_len_write_index; i++)
-            if (conn_data->content_len[i] != conn_data->content_len[0]) {
-                // do close
-                ret = SYNTAX_ERROR;
-                goto end;
-            }
-        // fixed len body
-        ret = PROCESS_BODY;
-        conn_data->body_len_to_skip = (unsigned long int) conn_data->content_len[0];
-    }
-    end:
-    conn_data->state = ret;
-    conn_data->run = to_run;
-}
-
-static void proc_body(struct conn_data *conn_data, uint8_t **buffer, size_t *size_to_read) {
-    enum state ret = PROCESS_BODY;
-    bool to_run = true;
-    if (conn_data->body_len_to_skip == 0) {
-        // we skip all body -> message end
-        ret = MESSAGE_END;
-        goto end;
-    }
-    if (*size_to_read == 0) {
-        // if nothing is in buffer pause and stay in state
-        to_run = false;
-        goto end;
-    }
-    skip_bytes(&(conn_data->body_len_to_skip),conn_data,buffer,size_to_read);
-    end:
-    conn_data->state = ret;
-    conn_data->run = to_run;
-}
-
-static void proc_chunk_size(struct conn_data *conn_data, uint8_t **buffer, size_t *size_to_read) {
-    enum state ret = PROCESS_CHUNK_SIZE;
-    bool to_run = false;
-    // find CR
-    if (buffer_token('\x0D', &(conn_data->token_buffer_write_ptr), &(conn_data->token_buffer_free_space), buffer, size_to_read, "chunk size")) {
-        // token end found in read buffer -> go to next state and run
-        ret = PROCESS_CHUNK_SIZE_END;
-        to_run = true;
-    }
-    end:
-    conn_data->state = ret;
-    conn_data->run = to_run;
-}
-
-static void proc_chunk_size_end(struct conn_data *conn_data, uint8_t **buffer, size_t *size_to_read) {
-    check_byte('\x0A',PARSE_CHUNK_SIZE,SYNTAX_ERROR,conn_data,buffer,size_to_read);
-}
-
-static void parse_chunk_size(struct conn_data *conn_data, uint8_t **buffer, size_t *size_to_read) {
-    // WARNING !!! chunk extension can follow chunk size
-    // but we dont care about them
-    // chunksize is defined in HEXADECIMAL format !!!
-    enum state ret = SYNTAX_ERROR;
-    bool to_run = true;
-    char *end_ptr;
-    errno = 0;
-    conn_data->chunk_size_to_skip = strtoul(conn_data->token_buffer,&end_ptr,16);
-    if ((errno == ERANGE && conn_data->chunk_size_to_skip == ULONG_MAX) ||
-        (conn_data->chunk_size_to_skip == 0 && errno != 0) ||
-        end_ptr == (char*)conn_data->token_buffer)
-        // conversion error
-        goto end;
-    if (conn_data->chunk_size_to_skip == 0)
-        ret = HAS_TRAILER;
-    else
-        ret = PROCESS_CHUNK;
-    end:
-    clear_token_buff(conn_data);
-    conn_data->run = to_run;
-    conn_data->state = ret;
-}
-
-static void proc_chunk(struct conn_data *conn_data, uint8_t **buffer, size_t *size_to_read) {
-    enum state ret = PROCESS_CHUNK;
-    bool to_run = true;
-    if (conn_data->chunk_size_to_skip == 0) {
-        // we skip whole chunk
-        ret = PROCESS_CHUNK_END1;
-        goto end;
-    }
-    if (*size_to_read == 0) {
-        // if nothing is in buffer pause and stay in state
-        to_run = false;
-        goto end;
-    }
-    skip_bytes(&conn_data->chunk_size_to_skip,conn_data,buffer,size_to_read);
-    end:
-    conn_data->state = ret;
-    conn_data->run = to_run;
-}
-
-static void proc_chunk_end1(struct conn_data *conn_data, uint8_t **buffer, size_t *size_to_read) {
-    check_byte('\x0D',PROCESS_CHUNK_END2,SYNTAX_ERROR,conn_data,buffer,size_to_read);
-}
-
-static void proc_chunk_end2(struct conn_data *conn_data, uint8_t **buffer, size_t *size_to_read) {
-    check_byte('\x0A',PROCESS_CHUNK_SIZE,SYNTAX_ERROR,conn_data,buffer,size_to_read);
-}
-
-static void has_trailer(struct conn_data *conn_data, uint8_t **buffer, size_t *size_to_read) {
-    check_byte('\x0D',PROCESS_CHUNKED_BODY_END,PROCESS_TRAILER,conn_data,buffer,size_to_read);
-}
-
-static void proc_chunked_body_end(struct conn_data *conn_data, uint8_t **buffer, size_t *size_to_read) {
-    check_byte('\x0A',MESSAGE_END,SYNTAX_ERROR,conn_data,buffer,size_to_read);
-}
-
-static void proc_trailer(struct conn_data *conn_data, uint8_t **buffer, size_t *size_to_read) {
-    enum state ret = PROCESS_TRAILER;
-    bool to_run = false;
-    if (buffer_token('\x0D', NULL, NULL, buffer, size_to_read, "chunk")) {
-        // token end found in read buffer -> go to next state and run
-        ret = PROCESS_TRAILER_END;
-        to_run = true;
-    }
-    conn_data->run = to_run;
-    conn_data->state = ret;
-}
-
-static void proc_trailer_end(struct conn_data *conn_data, uint8_t **buffer, size_t *size_to_read) {
-    check_byte('\x0A',PARSE_TRAILER,SYNTAX_ERROR,conn_data,buffer,size_to_read);
-}
-
-static void parse_trailer(struct conn_data *conn_data, uint8_t **buffer, size_t *size_to_read) {
-    // trailer is hedaer which can follow chunked body
-    // only a certain headers are allowed here according to standart
-    // but we are not interested in those headers
-    enum state ret = HAS_TRAILER;
-    bool to_run = true;
-    conn_data->run = to_run;
-    conn_data->state = ret;
-}
-
-static void message_end(struct conn_data *conn_data, uint8_t **buffer, size_t *size_to_read) {
-    report_message(conn_data);
-    do_reply(conn_data);
-    // reset buffers for a new message
-    conn_data->state = PROCESS_METHOD;
-    conn_data->char_read_count = 0;
-    clear_url(conn_data);
-    clear_transfer_encoding(conn_data);
-    clear_content_len(conn_data);
-    conn_data->body_len_to_skip = 0;
-    conn_data->chunk_size_to_skip = 0;
-
-    // start process new message
-    if (*size_to_read > 0)
-        // new message in rest of the buffer
-        conn_data->run = true;
-    else
-        // wait for new buffer read
-        conn_data->run = false;
-}
-
-static void syntax_error(struct conn_data *conn_data, uint8_t **buffer, size_t *size_to_read) {
-    send_response(conn_data, HTTP_400_REP);
-    do_close(conn_data);
-    conn_data->run = false;
-}
-
-static void on_default(struct conn_data *conn_data, uint8_t **buffer, size_t *size_to_proc) {
-    DEBUG_PRINT("http - default\n");
-    do_close(conn_data);
-    conn_data->run = false;
-}
-
-static void proc_buffer(struct conn_data *conn_data, uint8_t *buffer, size_t size) {
-    DEBUG_PRINT("http - proc buffer - start\n");
-    uint8_t *buffer_ptr = buffer;
-    size_t elems_to_process = size;
-    conn_data->run = true;
-    while (conn_data->run)
-    {
-        switch (conn_data->state) {
-            case PROCESS_METHOD:
-                DEBUG_PRINT("http - process method\n");
-                proc_method(conn_data,&buffer_ptr,&elems_to_process);
-                break;
-            case PARSE_METHOD:
-                DEBUG_PRINT("http - parse method\n");
-                parse_method(conn_data,&buffer_ptr,&elems_to_process);
-                break;
-            case PROCESS_URL:
-                DEBUG_PRINT("http - process url\n");
-                proc_url(conn_data,&buffer_ptr,&elems_to_process);
-                break;
-            case PROCESS_HTTP_VERSION:
-                DEBUG_PRINT("http - process http version\n");
-                proc_http_version(conn_data,&buffer_ptr,&elems_to_process);
-                break;
-            case PROCESS_START_LINE_END:
-                DEBUG_PRINT("http - process start line end\n");
-                proc_start_line_end(conn_data,&buffer_ptr,&elems_to_process);
-                break;
-            case IS_HEADERS_END1:
-                DEBUG_PRINT("http - is headers end 1\n");
-                is_headers_end1(conn_data,&buffer_ptr,&elems_to_process);
-                break;
-            case IS_HEADERS_END2:
-                DEBUG_PRINT("http - is headers end 2\n");
-                is_headers_end2(conn_data,&buffer_ptr,&elems_to_process);
-                break;
-            case PROCESS_HEADER:
-                DEBUG_PRINT("http - process header\n");
-                proc_header(conn_data,&buffer_ptr,&elems_to_process);
-                break;
-            case PROCESS_HEADER_END:
-                DEBUG_PRINT("http - process header end\n");
-                proc_header_end(conn_data,&buffer_ptr,&elems_to_process);
-                break;
-            case PARSE_HEADER:
-                DEBUG_PRINT("http - parse header\n");
-                parse_header(conn_data,&buffer_ptr,&elems_to_process);
-                break;
-            case HEADERS_END:
-                DEBUG_PRINT("http - headers end\n");
-                headers_end(conn_data,&buffer_ptr,&elems_to_process);
-                break;
-            case PROCESS_BODY:
-                DEBUG_PRINT("http - process body\n");
-                proc_body(conn_data,&buffer_ptr,&elems_to_process);
-                break;
-            case PROCESS_CHUNK_SIZE:
-                DEBUG_PRINT("http - process chunk size\n");
-                proc_chunk_size(conn_data,&buffer_ptr,&elems_to_process);
-                break;
-            case PROCESS_CHUNK_SIZE_END:
-                DEBUG_PRINT("http - process chunk size end\n");
-                proc_chunk_size_end(conn_data,&buffer_ptr,&elems_to_process);
-                break;
-            case PARSE_CHUNK_SIZE:
-                DEBUG_PRINT("http - parse chunk size\n");
-                parse_chunk_size(conn_data,&buffer_ptr,&elems_to_process);
-                break;
-            case PROCESS_CHUNK:
-                DEBUG_PRINT("http - process chunk\n");
-                proc_chunk(conn_data,&buffer_ptr,&elems_to_process);
-                break;
-            case PROCESS_CHUNK_END1:
-                DEBUG_PRINT("http - process chunk end1\n");
-                proc_chunk_end1(conn_data,&buffer_ptr,&elems_to_process);
-                break;
-            case PROCESS_CHUNK_END2:
-                DEBUG_PRINT("http - process chunk end2\n");
-                proc_chunk_end2(conn_data,&buffer_ptr,&elems_to_process);
-                break;
-            case HAS_TRAILER:
-                DEBUG_PRINT("http - has trailer\n");
-                has_trailer(conn_data,&buffer_ptr,&elems_to_process);
-                break;
-            case PROCESS_CHUNKED_BODY_END:
-                DEBUG_PRINT("http - process chunked body end\n");
-                proc_chunked_body_end(conn_data,&buffer_ptr,&elems_to_process);
-                break;
-            case PROCESS_TRAILER:
-                DEBUG_PRINT("http - process trailer\n");
-                proc_trailer(conn_data,&buffer_ptr,&elems_to_process);
-                break;
-            case PROCESS_TRAILER_END:
-                DEBUG_PRINT("http - process trailer end\n");
-                proc_trailer_end(conn_data,&buffer_ptr,&elems_to_process);
-                break;
-            case PARSE_TRAILER:
-                DEBUG_PRINT("http - parse trailer\n");
-                parse_trailer(conn_data,&buffer_ptr,&elems_to_process);
-                break;
-            case MESSAGE_END:
-                DEBUG_PRINT("http - message end\n");
-                message_end(conn_data,&buffer_ptr,&elems_to_process);
-                break;
-            case SYNTAX_ERROR:
-                DEBUG_PRINT("http - syntax error\n");
-                syntax_error(conn_data,&buffer_ptr,&elems_to_process);
-                break;
-            default:
-                DEBUG_PRINT("http - parse method\n");
-                on_default(conn_data,&buffer_ptr,&elems_to_process);
-                break;
-        }
-    }
-    DEBUG_PRINT("http - proces buffer - end\n");
+static void on_timeout(int fd, short ev, void *arg){
+	DEBUG_PRINT("http - timeout\n");
+	struct conn_data *conn_data = (struct conn_data *)arg;
+	close_conn(conn_data);
 }
 
 static void on_recv(int fd, short ev, void *arg) {
-    struct conn_data *conn_data = (struct conn_data *)arg;
-    // Reset read buffer before read
-    memset(read_buffer, 0, sizeof(*read_buffer) * BUFSIZ);
-    // MSG_DONTWAIT - nonblocking
-    ssize_t amount = recv(fd, read_buffer, BUFSIZ, MSG_DONTWAIT);
-    switch (amount) {
-        case -1:
-            if (errno == EWOULDBLOCK || errno == EAGAIN)
-                return;
-            DEBUG_PRINT("http - Error on http connection %d: %s\n", fd, strerror(errno));
-            // No break - fall through
-        case 0:
-            DEBUG_PRINT("http - Closed http connection %d\n", fd);
-            do_close(conn_data);
-            return;
-        default:
-            break;
-    }
-    conn_data->char_read_count += amount;
-    if (conn_data->char_read_count > HTTP_MAX_REQ_MESG_LEN) {
-        // max request message length reached
-        DEBUG_PRINT("http - maximal message length reached\n");
-        // send_400(conn_data);
-        send_response(conn_data, HTTP_400_REP);
-        // report_syntax_error(conn_data);
-        do_close(conn_data);
-        return;
-    }
-    proc_buffer(conn_data,read_buffer,(size_t)amount);
-}
-
-static void on_conn_timeout(int fd, short ev, void *arg){
-    struct conn_data *conn_data = (struct conn_data *)arg;
-    do_close(conn_data);
+	DEBUG_PRINT("http - on receive\n");
+	struct conn_data *conn_data = (struct conn_data *)arg;
+	ssize_t amount = recv(fd, read_buff, BUFSIZ, 0);
+	switch (amount) {
+		case -1:
+			if (errno == EAGAIN)
+				return;
+			DEBUG_PRINT("http - error on connection %d: %s\n", fd, strerror(errno));
+		case 0:
+			close_conn(conn_data);
+			return;
+	}
+	event_del(conn_data->inac_tout_ev);
+	// reset keep alive timer
+	struct timeval tm = {KEEP_ALIVE_TOUT, 0};
+	evtimer_add(conn_data->keep_alive_tout_ev, &tm);
+	proc_bytes(conn_data, read_buff, (size_t) amount);
 }
 
 static void on_accept(int listen_fd, short ev, void *arg) {
-    int connection_fd;
-    struct sockaddr_storage connection_addr;
-    socklen_t connection_addr_len = sizeof(connection_addr);
-    connection_fd = accept(listen_fd, (struct sockaddr *)&connection_addr, &connection_addr_len);
-    if (connection_fd < 0)
-        return;
-    if (setnonblock(connection_fd) != 0) {
-        close(connection_fd);
-        return;
-    }
-    // from connection pool
-    struct conn_data *conn_data = get_conn_data(connection_fd);
-    if (!conn_data) {
-        // no free slots
-        close(connection_fd);
-        return;
-    }
-    sockaddr_to_string(&connection_addr, conn_data->ipaddr_str);
-    DEBUG_PRINT("http - Accepted http connection %d\n", connection_fd);
-    event_assign(conn_data->read_ev, ev_base, connection_fd, EV_READ | EV_PERSIST, on_recv, conn_data);
-    event_add(conn_data->read_ev, NULL);
-    evtimer_assign(conn_data->timeout_ev, ev_base, on_conn_timeout, conn_data);
-    evtimer_add(conn_data->timeout_ev, conn_timeout);
-    report_connect(conn_data);
+	DEBUG_PRINT("http - on accept\n");
+	struct sockaddr_storage conn_addr;
+	socklen_t conn_addr_len = sizeof(conn_addr);
+	int conn_fd = accept(listen_fd, (struct sockaddr *)&conn_addr, &conn_addr_len);
+	if (conn_fd < 0) {
+		DEBUG_PRINT("http - error - accept\n");
+		return;
+	}
+	if (setnonblock(conn_fd) != 0) {
+		DEBUG_PRINT("http - error - couldnt set nonblock\n");
+		close(conn_fd);
+		return;
+	}
+	struct conn_data *conn_data = get_conn_data(conn_fd);
+	if (conn_data == NULL) {
+		DEBUG_PRINT("http - accept - no free slots\n");
+		// no free slots
+		close(conn_fd);
+		return;
+	}
+	if (sockaddr_to_string(&conn_addr, conn_data->ipaddr_str) != 0) {
+		DEBUG_PRINT("http - sock addr to string - unknown socket family\n");
+		exit_code = EXIT_FAILURE;
+		event_base_loopbreak(ev_base);
+		return;
+	}
+	event_assign(conn_data->read_ev, ev_base, conn_data->fd, EV_READ | EV_PERSIST, on_recv, conn_data);
+	event_add(conn_data->read_ev, NULL);
+	evtimer_assign(conn_data->inac_tout_ev, ev_base, on_timeout, conn_data);
+	struct timeval tm = {INACT_TOUT, 0};
+	evtimer_add(conn_data->inac_tout_ev, &tm);
+	evtimer_assign(conn_data->keep_alive_tout_ev, ev_base, on_timeout, conn_data);
+	report_connect(conn_data);
+	DEBUG_PRINT("http - accepted connection %d\n", conn_data->fd);
 }
 
-static void sigint_handler(evutil_socket_t sig, short events, void *user_data) {
-    // DEBUG_PRINT("SIGINT in HTTP\n");
-    event_base_loopbreak(ev_base);
-}
+void handle_http(uint16_t port, int pipe_write_fd) {
+	exit_code = EXIT_SUCCESS;
+	report_fd = pipe_write_fd;
+	int listen_fd;
+	if (setup_sock(&listen_fd) != 0) {
+		DEBUG_PRINT("http - error - couldn't setup socket\n");
+		exit_code = EXIT_FAILURE;
+		goto socket_err1;
+	}
+	if (bind_to_port(listen_fd, port) != 0) {
+		DEBUG_PRINT("http - error - couldn't  bind to port fd: %d\n", listen_fd);
+		exit_code = EXIT_FAILURE;
+		goto socket_err2;
+	}
+	if (listen(listen_fd, 5) != 0) {
+		DEBUG_PRINT("http - error - couldn't listen on port fd: %d\n", listen_fd);
+		exit_code = EXIT_FAILURE;
+		goto socket_err2;
+	}
+	if (alloc_glob_res() != 0 ) {
+		DEBUG_PRINT("http - error - couldn't allocate global resources\n");
+		exit_code = EXIT_FAILURE;
+		goto socket_err2;
+	}
+	struct event *sigint_ev = event_new(ev_base, SIGINT, EV_SIGNAL, on_sigint, ev_base);
+	if (sigint_ev == NULL) {
+		DEBUG_PRINT("http - error - couldn't allocate sigint ev\n");
+		exit_code = EXIT_FAILURE;
+		goto sigint_ev_err;
+	}
+	signal(SIGPIPE, SIG_IGN);
+	// to supress evenet base logging
+	event_set_log_callback(ev_base_discard_cb);
+	event_assign(accept_ev, ev_base, listen_fd, EV_READ | EV_PERSIST, on_accept, NULL);
+	event_add(accept_ev, NULL);
+	event_add(sigint_ev, NULL);
+	event_base_dispatch(ev_base);
+	event_free(sigint_ev);
 
-static void alloc_conn_data_pool() {
-    conn_data_pool = malloc(sizeof(*conn_data_pool)*HTTP_MAX_CONN_COUNT);
-    for (unsigned i = 0; i < HTTP_MAX_CONN_COUNT; i++) {
-        conn_data_pool[i].read_ev = malloc(sizeof(*conn_data_pool[i].read_ev));
-        conn_data_pool[i].timeout_ev = malloc(sizeof(*conn_data_pool[i].timeout_ev));
-        conn_data_pool[i].ipaddr_str = malloc(sizeof(*conn_data_pool[i].ipaddr_str) * HTTP_IP_ADDR_LEN);
-        conn_data_pool[i].token_buffer = malloc(sizeof(*conn_data_pool[i].token_buffer) * HTTP_MAX_TOKEN_BUFFER_LEN);
-        conn_data_pool[i].url = malloc(sizeof(*conn_data_pool[i].url) * HTTP_MAX_URI_LEN);
-        conn_data_pool[i].user_id = malloc(sizeof(*conn_data_pool[i].user_id) * HTTP_MAX_TOKEN_BUFFER_LEN);
-        conn_data_pool[i].password = malloc(sizeof(*conn_data_pool[i].password) * HTTP_MAX_TOKEN_BUFFER_LEN);
-        conn_data_pool[i].user_agent = malloc(sizeof(*conn_data_pool[i].user_agent) * HTTP_MAX_TOKEN_BUFFER_LEN);
-        conn_data_pool[i].transfer_encoding = malloc(sizeof(*conn_data_pool[i].transfer_encoding) * HTTP_TRANSFER_ENCODING_SIZE);
-        conn_data_pool[i].content_len = malloc(sizeof(*conn_data_pool[i].content_len) * HTTP_CONTENT_LENGTH_SIZE);
-        conn_data_pool[i].fd = -1;
-    }
-}
+	sigint_ev_err:
+	free_glob_res();
 
-static void free_conn_data_pool() {
-    for (unsigned i = 0; i < HTTP_MAX_CONN_COUNT; i++) {
-        free(conn_data_pool[i].read_ev);
-        free(conn_data_pool[i].timeout_ev);
-        free(conn_data_pool[i].ipaddr_str);
-        free(conn_data_pool[i].token_buffer);
-        free(conn_data_pool[i].url);
-        free(conn_data_pool[i].user_id);
-        free(conn_data_pool[i].password);
-        free(conn_data_pool[i].user_agent);
-        free(conn_data_pool[i].transfer_encoding);
-        free(conn_data_pool[i].content_len);
-    }
-    free(conn_data_pool);
-}
+	socket_err2:
+	close(listen_fd);
 
-void handle_http(unsigned port, int reporting_fd) {
-    DEBUG_PRINT("http - running\n");
-    // sockect
-    // AF_INET6 - IPv6
-    // SOCK_STREAM - sequenced, reliable, two-way, connection-based byte streams
-    int listen_fd = socket(AF_INET6, SOCK_STREAM, 0);
-    CHECK_ERR(listen_fd < 0, "socket");
-    int flag = 1;
-    // SOL_SOCKET - set option on socket level
-    // SO_REUSEADDR - reuse of local address
-    setsockopt(listen_fd, SOL_SOCKET, SO_REUSEADDR, &flag, sizeof(flag));
-    flag = 0;
-    // IPPROTO_IPV6 - set option on IPv6 level
-    // IPV6_V6ONLY - send and receive packets to and from an IPv6 address
-    // or an IPv4-mapped IPv6 address
-    setsockopt(listen_fd, IPPROTO_IPV6, IPV6_V6ONLY, &flag, sizeof(flag));
-    // IPv6 socket address
-    struct sockaddr_in6 listen_addr;
-    memset(&listen_addr, 0, sizeof(listen_addr));
-    // IPv6
-    listen_addr.sin6_family = AF_INET6;
-    // unspecified IP address
-    listen_addr.sin6_addr = in6addr_any;
-    listen_addr.sin6_port = htons(port);
-    CHECK_ERR(bind(listen_fd, (struct sockaddr *)&listen_addr, sizeof(listen_addr)) < 0, "bind");
-    // max 5 pending connections
-    // NONBLOCKING
-    CHECK_ERR(listen(listen_fd, 5) < 0, "listen");
-    signal(SIGPIPE, SIG_IGN);
-    alloc_conn_data_pool();
-    ev_base = event_base_new();
-    report_fd = reporting_fd;
-    conn_timeout = malloc(sizeof(*conn_timeout));
-    conn_timeout->tv_sec = HTTP_REQ_MSG_TIMEOUT;
-    conn_timeout->tv_usec = 0;
-    read_buffer = malloc(sizeof(*read_buffer) * BUFSIZ);
-    decode_buffer = malloc(sizeof(*decode_buffer) * HTTP_MAX_TOKEN_BUFFER_LEN);
-    // event base setting
-    struct event *ev_accept = event_new(ev_base, listen_fd, EV_READ | EV_PERSIST, on_accept, NULL);
-    event_add(ev_accept, NULL);
-    struct event *signal_event = event_new(ev_base, SIGINT, EV_SIGNAL | EV_PERSIST, sigint_handler, NULL);
-    event_add(signal_event, NULL);
-    event_base_dispatch(ev_base);
-    free_conn_data_pool();
-    event_free(ev_accept);
-    event_free(signal_event);
-    event_base_free(ev_base);
-    free(conn_timeout);
-    free(read_buffer);
-    free(decode_buffer);
+	socket_err1:
+	close(report_fd);
+	exit(exit_code);
 }
