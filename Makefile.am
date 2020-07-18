@@ -25,14 +25,13 @@ sentinel_minipot_LDADD = \
 
 
 gperf_files =  \
-	http_method.gperf.c \
 	http_header.gperf.c \
 	http_tr_enc.gperf.c \
 	ftp_commands.gperf.c \
 	smtp_commands.gperf.c \
 	sasl_mechanisms.gperf.c
 
-sentinel_minipot-http.$(OBJEXT): http_method.gperf.c http_header.gperf.c http_tr_enc.gperf.c
+sentinel_minipot-http.$(OBJEXT): http_header.gperf.c http_tr_enc.gperf.c
 sentinel_minipot-ftp.$(OBJEXT): ftp_commands.gperf.c
 sentinel_minipot-smtp.$(OBJEXT): smtp_commands.gperf.c sasl_mechanisms.gperf.c
 
