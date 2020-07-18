@@ -7,7 +7,8 @@ sentinel_minipot_SOURCES = \
 	telnet.c \
 	http.c \
 	ftp.c \
-	smtp.c
+	smtp.c \
+	cli_opts.c
 
 sentinel_minipot_CFLAGS = \
 	${czmq_CFLAGS} \
