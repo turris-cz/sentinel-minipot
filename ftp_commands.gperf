@@ -1,6 +1,7 @@
 %define hash-function-name ftp_command_hash
 %define lookup-function-name ftp_command_lookup
 %language=C
+%compare-lengths
 %7bit
 %enum
 %includes
@@ -8,64 +9,21 @@
 %struct-type
 %{
 enum ftp_command_abr{
-    ABOR, ACCT, ALLO, APPE, CDUP,
-    CWD, DELE, EPRT, EPSV, FEAT,
-    HELP, LIST, LPRT, LPSV, MDTM,
-    MKD, MLSD, MLST, MODE, NLST,
-    NOOP, OPTS, PASS, PASV, PORT,
-    PWD, QUIT, REIN, REST, RETR,
-    RMD, RNFR, RNTO, SITE, SIZE,
-    SMNT, STAT, STOR, STOU, STRU,
-    SYST, TYPE, USER,
+	USER,
+	PASS,
+	QUIT,
+	FEAT,
+	OPTS,
 };
 %}
 struct ftp_command {
-    char *name;
-    enum ftp_command_abr comand_abr;
+	char *name;
+	enum ftp_command_abr comand_abr;
 };
 %%
-#only comments allowed here
-abor,   ABOR
-acct,   ACCT
-allo,   ALLO
-appe,   APPE
-cdup,   CDUP
-cwd,    CWD
-dele,   DELE
-eprt,   EPRT
-epsv,   EPSV
-feat,   FEAT
-help,   HELP
-list,   LIST
-lprt,   LPRT
-lpsv,   LPSV
-mdtm,   MDTM
-mkd,    MKD
-mlsd,   MLSD
-mlst,   MLST
-mode,   MODE
-nlst,   NLST
-noop,   NOOP
-opts,   OPTS,
-pass,   PASS
-pasv,   PASV
-port,   PORT
-pwd,    PWD
-quit,   QUIT
-rein,   REIN
-rest,   REST
-retr,   RETR
-rmd,    RMD
-rnfr,   RNFR
-rnto,   RNTO
-site,   SITE
-size,   SIZE
-smnt,   SMNT
-stat,   STAT
-stor,   STOR
-stou,   STOU
-stru,   STRU
-syst,   SYST
-type,   TYPE
-user,   USER
+user,	USER
+pass,	PASS
+quit,	QUIT
+feat,	FEAT
+opts,	OPTS
 %%
