@@ -42,6 +42,7 @@
 #include "utils.h"
 #include "messages.h"
 #include "telnet.h"
+#include "http.h"
 
 enum minipot_type {
     TELNET,
@@ -264,6 +265,7 @@ int main(int argc, char *argv[]) {
                 start_service(&service_data_pool[i], ev_base, arguments.minipots_ports[i], arguments.user, handle_telnet, "telnet");
                 break;
             case HTTP:
+                start_service(&service_data_pool[i], ev_base, arguments.minipots_ports[i], arguments.user, handle_http, "http");
                 break;
             case FTP:
                 break;
