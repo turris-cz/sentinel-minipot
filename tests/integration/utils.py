@@ -40,23 +40,22 @@ def send_to_sock(sock, data):
     """ Sends given data to given socket.
         sock - socket
         data - bytes
-        returns number of bytes sent to the socket - int """
+         """
     return sock.sendall(data)
 
 
 def recv_from_sock(sock):
-    # TODO check socket settings
-    """ Receives 128 bytes from socket 128 bytes.
+    """ Receives 16384 bytes from socket 128 bytes.
         If no data are available rerurn empty string.
         returns bytes"""
-    try:
-        # TODO change receive buffer size here
-        data = sock.recv(128)
-    except BlockingIOError:
-        return b''
-    else:
-        return data
-
+    # try:
+    #     # TODO change receive buffer size here
+    #     data = sock.recv(128)
+    # except ConnectionError:
+    #     return None
+    # else:
+    #     return data
+    return sock.recv(16384)
 
 def str_cmp(str1, str2):
     """ Checks if str1 is equal to str2. If not exception is raised. """
@@ -69,3 +68,10 @@ def get_ip_addr(sock):
         returns string """
     ip_addr, port = sock.getpeername()
     return ip_addr
+
+
+def get_ip_addr2(sock):
+    """ Get peer IP address from a socket.
+        returns bytes """
+    ip_addr, port = sock.getpeername()
+    return bytes(ip_addr, "utf-8")
