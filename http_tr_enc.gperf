@@ -1,6 +1,7 @@
 %define hash-function-name http_transfer_encoding_hash
 %define lookup-function-name http_transfer_encoding_lookup
 %language=C
+%compare-lengths
 %7bit
 %enum
 %includes
@@ -8,20 +9,19 @@
 %struct-type
 %{
 enum http_transfer_encoding_type{
-    CHUNKED,
-    COMPRESS,
-    DEFLATE,
-    GZIP
+	CHUNKED,
+	COMPRESS,
+	DEFLATE,
+	GZIP
 };
 %}
 struct http_transfer_encoding {
-    char *name;
-    enum http_transfer_encoding_type transfer_encoding_type;
+	char *name;
+	enum http_transfer_encoding_type transfer_encoding_type;
 };
 %%
-#only comments allowed here
-chunked,    CHUNKED
-compress,   COMPRESS
-deflate,    DEFLATE
-gzip,       GZIP
+chunked,	CHUNKED
+compress,	COMPRESS
+deflate,	DEFLATE
+gzip,		GZIP
 %%
