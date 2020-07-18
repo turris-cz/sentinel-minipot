@@ -19,12 +19,10 @@
 #ifndef __SENTINEL_MINIPOT_TELNET_H__
 #define __SENTINEL_MINIPOT_TELNET_H__
 
-#define MAX_CONN_COUNT 5
-#define S_LINE_MAX 256
-#define DENIAL_TIMEOUT 1
-#define MAX_ATTEMPTS 3
-
-int setnonblock(int fd);
+#define TELNET_MAX_CONN_COUNT 5
+#define TELNET_S_LINE_MAX 256
+#define TELNET_DENIAL_TIMEOUT 1
+#define TELNET_MAX_ATTEMPTS 3
 
 void handle_telnet(unsigned port, int reporting_fd);
 

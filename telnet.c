@@ -77,8 +77,8 @@ struct conn_data {
     struct event read_ev;
     struct event denial_timeout_ev;
     int attempts;
-    char ipaddr_str[INET6_ADDRSTRLEN];
-    char username[S_LINE_MAX + 1], password[S_LINE_MAX + 1];
+    char ipaddr_str[INET6_ADDRSTRLEN]; //IP address of attacker
+    char username[TELNET_S_LINE_MAX + 1], password[TELNET_S_LINE_MAX + 1];
     char *line_base, *line;
 };
 
@@ -97,9 +97,9 @@ struct event_base *ev_base;
 static struct conn_data *alloc_conn_data(int connection_fd) {
     unsigned i = 0;
     // not used structs have fd set to -1, we don't need separate flags
-    while (i < MAX_CONN_COUNT && conn_data_pool[i].fd != -1)
+    while (i < TELNET_MAX_CONN_COUNT && conn_data_pool[i].fd != -1)
         i++;
-    if (i >= MAX_CONN_COUNT) {
+    if (i >= TELNET_MAX_CONN_COUNT) {
         DEBUG_PRINT("no free struct conn_data - connection limit reached\n");
         return NULL;
     }
@@ -195,7 +195,7 @@ static void send_denial(int fd, short event, void *data) {
     const char *wrong = "Login incorrect\n";
     if (!send_all(conn, wrong, strlen(wrong)))
         goto error;
-    if (++conn->attempts == MAX_ATTEMPTS)
+    if (++conn->attempts == TELNET_MAX_ATTEMPTS)
         goto error;
     if (!ask_for_login(conn))
         goto error;
@@ -220,7 +220,7 @@ static bool process_line(struct conn_data *conn) {
             evtimer_assign(&conn->denial_timeout_ev, ev_base, send_denial, conn);
             conn->position = WAIT_DENIAL;
             struct timeval tv;
-            tv.tv_sec = DENIAL_TIMEOUT;
+            tv.tv_sec = TELNET_DENIAL_TIMEOUT;
             tv.tv_usec = 0;
             evtimer_add(&conn->denial_timeout_ev, &tv);
             break;
@@ -312,7 +312,7 @@ static bool char_handle(struct conn_data *conn, uint8_t ch) {
             conn->expect = EXPECT_LF;
             break;
         default:
-            if (conn->line && conn->line - conn->line_base + 1 < S_LINE_MAX)
+            if (conn->line && conn->line - conn->line_base + 1 < TELNET_S_LINE_MAX)
                 *(conn->line++) = ch;
             break;
     }
@@ -392,8 +392,8 @@ void handle_telnet(unsigned port, int reporting_fd) {
     listen_addr.sin6_port = htons(port);
     CHECK_ERR(bind(listen_fd, (struct sockaddr *)&listen_addr, sizeof(listen_addr)) < 0, "bind");
     CHECK_ERR(listen(listen_fd, 5) < 0, "listen");
-    conn_data_pool = malloc(sizeof(*conn_data_pool)*MAX_CONN_COUNT);
-    for (unsigned i = 0; i < MAX_CONN_COUNT; i++)
+    conn_data_pool = malloc(sizeof(*conn_data_pool)*TELNET_MAX_CONN_COUNT);
+    for (unsigned i = 0; i < TELNET_MAX_CONN_COUNT; i++)
         conn_data_pool[i].fd = -1;
     ev_base = event_base_new();
     report_fd = reporting_fd;
