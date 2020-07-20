@@ -75,7 +75,6 @@ int send_all(int fd, const char *data, size_t amount) {
 	return 0;
 }
 
-
 static uint8_t *skip_sel_bytes(uint8_t *str, size_t str_len, uint8_t *to_skip, size_t to_skip_len) {
 	if (!str || str_len == 0 || !to_skip || to_skip_len == 0) {
 		DEBUG_PRINT("http - skip bytes - wrong input\n");
@@ -174,20 +173,16 @@ void on_sigint(evutil_socket_t sig, short events, void *user_data) {
  */
 static bool base64_is_valid_mid_char(const char c) {
 	return \
-	(c >= '0' && c <= '9') || \
-	(c >= 'A' && c <= 'Z') || \
-	(c >= 'a' && c <= 'z') || \
-	c == '+' || c == '/';
+		(c >= '0' && c <= '9') || \
+		(c >= 'A' && c <= 'Z') || \
+		(c >= 'a' && c <= 'z') || \
+		(c == '+' || c == '/');
 }
 
 static bool base64_is_valid_mid_string(const char *const data, size_t len) {
 	for (size_t i = 0; i < len; i++)
-		if (!base64_is_valid_mid_char(data[i])) {
-			DEBUG_PRINT("%c is invalid\n", data[i]);
+		if (!base64_is_valid_mid_char(data[i]))
 			return false;
-		} else {
-			DEBUG_PRINT("%c is valid\n", data[i]);
-		}
 	return true;
 }
 
@@ -201,35 +196,14 @@ bool base64_is_valid(const char *const data, size_t len) {
 	or 2 chars without the padding.
 	The padding is in some cases ignored.
 	*/
-	if (data == NULL){
-		DEBUG_PRINT("data is null\n");
+	if (len == 1)
 		return false;
-	} else if (len < 2) {
-		DEBUG_PRINT("len is lower than 2\n");
-		return false;
-	} else if (len == 2) {
-		DEBUG_PRINT("len is 2\n");
-		return base64_is_valid_mid_char(data[0]) &&
-				base64_is_valid_mid_char(data[1]);
-	} else {
-		if (data[len - 1] == '=') {
-			DEBUG_PRINT("last char is padding\n");
-			// last char is padding
-			if (data[len - 2] == '=') {
-				DEBUG_PRINT("second last char is padding\n");
-				// second last char is padding
-				return base64_is_valid_mid_string(data, len - 2);
-			} else {
-				DEBUG_PRINT("second last char is NOT padding\n");
-				// second last char is NOT padding
-				return base64_is_valid_mid_string(data, len - 1);
-			}
-		} else {
-			DEBUG_PRINT("last char is NOT padding\n");
-			// last char is NOT padding
-			return base64_is_valid_mid_string(data, len);
-		}
-	}
+
+	int padding = 0;
+	if (len > 2)
+		for (; padding < 2 && data[len - padding - 1] == '='; padding++);
+
+	return base64_is_valid_mid_string(data, len - padding);
 }
 
 /*
@@ -238,37 +212,38 @@ bool base64_is_valid(const char *const data, size_t len) {
 void concat_mesg(char **buff, size_t args_num, ...) {
 	DEBUG_PRINT("utils - concat mesg\n");
 	va_list args;
-	va_start(args, args_num);
 	size_t mesg_size = 0;
+	va_start(args, args_num);
 	for (size_t i = 0; i < args_num; i++)
 		mesg_size += strlen(va_arg(args, char*));
+	va_end(args);
 	mesg_size++; // terminating null byte
-	char *mesg = malloc(mesg_size);
-	mesg[0] = 0;
+
+	*buff = malloc(mesg_size);
+	**buff = 0;
 	va_start(args, args_num);
 	for (size_t i = 0; i < args_num; i++)
-		strcat(mesg, va_arg(args, char*));
-	*buff = mesg;
+		strcat(*buff, va_arg(args, char*));
+	va_end(args);
 }
 
 int setup_sock(int *fd) {
 	*fd = socket(AF_INET6, SOCK_STREAM, 0);
 	if (*fd == -1)
-		goto err1;
+		return -1;
+
 	int flag = 1;
 	if (setsockopt(*fd, SOL_SOCKET, SO_REUSEADDR, &flag, sizeof(flag)) != 0)
-		goto err2;
+		goto err;
 	flag = 0;
 	if (setsockopt(*fd, IPPROTO_IPV6, IPV6_V6ONLY, &flag, sizeof(flag)) != 0)
-		goto err2;
+		goto err;
 	if (setnonblock(*fd) != 0)
-		goto err2;
+		goto err;
 	return 0;
 
-	err2:
+err:
 	close(*fd);
-
-	err1:
 	return -1;
 }
 
