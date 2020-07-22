@@ -9,19 +9,20 @@ sentinel_minipot_SOURCES = \
 	ftp.c \
 	smtp.c \
 	cli_opts.c \
-	minipot_pipe.c \
-	base64/base64.c
+	minipot_pipe.c
 
 sentinel_minipot_CFLAGS = \
 	${czmq_CFLAGS} \
 	${libevent_CFLAGS} \
 	${msgpack_CFLAGS} \
+	${base64c_CFLAGS} \
 	-std=c99
 
 sentinel_minipot_LDADD = \
 	${czmq_LIBS} \
 	${libevent_LIBS} \
-	${msgpack_LIBS}
+	${msgpack_LIBS} \
+	${base64c_LIBS}
 
 
 gperf_files =  \

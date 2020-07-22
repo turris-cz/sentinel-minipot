@@ -7,6 +7,7 @@ AC_GNU_SOURCE
 PKG_CHECK_MODULES([czmq], [libczmq])
 PKG_CHECK_MODULES([libevent], [libevent])
 PKG_CHECK_MODULES([msgpack], [msgpack])
+PKG_CHECK_MODULES([base64c], [base64c])
 AC_LINK_IFELSE(
   [AC_LANG_PROGRAM([#include <argp.h>],[argp_parse(0,1,NULL,0,0,0);])],,
   [argp_standalone_required="yes"]

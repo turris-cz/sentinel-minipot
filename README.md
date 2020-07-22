@@ -8,8 +8,8 @@ libraries
  - czmq
  - libevent
  - libmsgpack
- - libb64
  - argp
+ - base64c (https://gitlab.nic.cz/turris/base64c)
 
 compilation tools
  - gperf - a perfect hash function generator

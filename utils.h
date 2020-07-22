@@ -64,7 +64,6 @@ int sockaddr_to_string(struct sockaddr_storage *conn_addr, char *str);
 int send_all(int fd, const char *data, size_t amount);
 size_t tokenize(uint8_t *str, size_t str_len, struct token *tokens, size_t tokens_len, uint8_t *separators, size_t sep_len);
 void ev_base_discard_cb(int severity, const char *msg);
-bool base64_is_valid(const char *const data, size_t len);
 void concat_mesg(char **buff, size_t args_num, ...);
 void on_sigint(evutil_socket_t sig, short events, void *user_data);
 int bind_to_port(int fd, uint16_t port);

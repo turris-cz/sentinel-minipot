@@ -20,7 +20,7 @@
 #include <event.h>
 #include <unistd.h>
 #include <strings.h>
-#include "base64/base64.h"
+#include <base64c.h>
 
 #include "utils.h"
 #include "char_consts.h"
@@ -634,9 +634,9 @@ static int auth_cmd_helo_sent_init_resp(struct conn_data *conn_data) {
 		// invalid sasl
 		return send_and_err_incr(conn_data, AUTH_INVLD_SASL_MECH);
 	} else {
-		if (base64_is_valid(tokens[2].start_ptr, tokens[2].len)) {
+		if (!base64_verify(tokens[2].start_ptr, tokens[2].len)) {
 			//valid base 64 string
-			dcoded_data_len = b64_decode(tokens[2].start_ptr, tokens[2].len, dcode_buff);
+			dcoded_data_len = base64_decode(tokens[2].start_ptr, tokens[2].len, dcode_buff);
 			switch (mech->abr) {
 				case PLAIN:
 					report_plain(conn_data);
@@ -801,8 +801,8 @@ static int proc_auth_data(struct conn_data *conn_data) {
 		conn_data->prot_state = HELO_SENT;
 		return send_resp(conn_data, PROC_DATA_AUTH_ABOR);
 	} else {
-		if (base64_is_valid(conn_data->token_buff, TOKEN_BUFF_LEN - conn_data->token_buff_free_space)) {
-			dcoded_data_len = b64_decode(conn_data->token_buff, TOKEN_BUFF_LEN - conn_data->token_buff_free_space, dcode_buff);
+		if (!base64_verify(conn_data->token_buff, TOKEN_BUFF_LEN - conn_data->token_buff_free_space)) {
+			dcoded_data_len = base64_decode(conn_data->token_buff, TOKEN_BUFF_LEN - conn_data->token_buff_free_space, dcode_buff);
 			switch (conn_data->prot_state) {
 				case EXPECT_PLAIN_DATA:
 					report_plain(conn_data);

@@ -168,45 +168,6 @@ void on_sigint(evutil_socket_t sig, short events, void *user_data) {
 }
 
 /*
- * Returns true if char is valid base64 char and false if it is not.
- * Does NOT check for PADDING char, because it can be only at 2 last positions!
- */
-static bool base64_is_valid_mid_char(const char c) {
-	return \
-		(c >= '0' && c <= '9') || \
-		(c >= 'A' && c <= 'Z') || \
-		(c >= 'a' && c <= 'z') || \
-		(c == '+' || c == '/');
-}
-
-static bool base64_is_valid_mid_string(const char *const data, size_t len) {
-	for (size_t i = 0; i < len; i++)
-		if (!base64_is_valid_mid_char(data[i]))
-			return false;
-	return true;
-}
-
-/*
- * Returns true if data is valid base64 string and false otherwise.
- * Doesn't need nor verifies null terminating byte.
- * Input is treated as byte array.
- */
-bool base64_is_valid(const char *const data, size_t len) {
-	/* Minimum size of the data is 4 chars with two == as padding
-	or 2 chars without the padding.
-	The padding is in some cases ignored.
-	*/
-	if (len == 1)
-		return false;
-
-	int padding = 0;
-	if (len > 2)
-		for (; padding < 2 && data[len - padding - 1] == '='; padding++);
-
-	return base64_is_valid_mid_string(data, len - padding);
-}
-
-/*
  * Allocates memory and concats null terminated strings to one null terminated string.
  */
 void concat_mesg(char **buff, size_t args_num, ...) {
