@@ -299,7 +299,6 @@ int main(int argc, char **argv) {
 		.topic = DEFAULT_TOPIC,
 		.socket = DEFAULT_LOCAL_SOCKET,
 		.minipots_count = 0,
-		.minipots_max_count = MAX_MINIPOT_COUNT,
 	};
 
 	if (load_cli_opts(argc, argv, &conf) != 0)

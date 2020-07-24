@@ -46,7 +46,6 @@ struct configuration {
 	const char *topic;
 	const char *socket;
 	size_t minipots_count;
-	size_t minipots_max_count;
 	struct minipot_conf minipots_conf[MAX_MINIPOT_COUNT];
 };
 

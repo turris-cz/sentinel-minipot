@@ -79,25 +79,25 @@ static error_t parse_opt(int key, char *arg, struct argp_state *state) {
 			conf->socket = arg;
 			break;
 		case 'T':
-			CHECK_COUNT(conf->minipots_count, conf->minipots_max_count);
+			CHECK_COUNT(conf->minipots_count, MAX_MINIPOT_COUNT);
 			PARSE_PORT(&conf->minipots_conf[conf->minipots_count].port, arg);
 			conf->minipots_conf[conf->minipots_count].type = MP_TYPE_TELNET;
 			conf->minipots_count++;
 			break;
 		case 'H':
-			CHECK_COUNT(conf->minipots_count, conf->minipots_max_count);
+			CHECK_COUNT(conf->minipots_count, MAX_MINIPOT_COUNT);
 			PARSE_PORT(&conf->minipots_conf[conf->minipots_count].port, arg);
 			conf->minipots_conf[conf->minipots_count].type = MP_TYPE_HTTP;
 			conf->minipots_count++;
 			break;
 		case 'F':
-			CHECK_COUNT(conf->minipots_count, conf->minipots_max_count);
+			CHECK_COUNT(conf->minipots_count, MAX_MINIPOT_COUNT);
 			PARSE_PORT(&conf->minipots_conf[conf->minipots_count].port, arg);
 			conf->minipots_conf[conf->minipots_count].type = MP_TYPE_FTP;
 			conf->minipots_count++;
 			break;
 		case 'S':
-			CHECK_COUNT(conf->minipots_count, conf->minipots_max_count);
+			CHECK_COUNT(conf->minipots_count, MAX_MINIPOT_COUNT);
 			PARSE_PORT(&conf->minipots_conf[conf->minipots_count].port, arg);
 			conf->minipots_conf[conf->minipots_count].type = MP_TYPE_SMTP;
 			conf->minipots_count++;
