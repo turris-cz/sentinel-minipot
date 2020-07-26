@@ -54,6 +54,9 @@
 	   __typeof__ (b) _b = (b); \
 	 _a > _b ? _b : _a; })
 
+#define SIZEOF_MEMBER(TYPE, MEMBER) sizeof(((TYPE*)NULL)->MEMBER)
+#define TYPEOF_MEMBER(TYPE, MEMBER) __typeof__(((TYPE*)NULL)->MEMBER)
+
 struct token{
 	uint8_t *start_ptr;
 	size_t len;
