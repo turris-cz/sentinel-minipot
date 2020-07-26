@@ -20,24 +20,17 @@
 #include <stdlib.h>
 #include <stdio.h>
 #include <unistd.h>
-#include <grp.h>
 #include <signal.h>
-#include <pwd.h>
 #include <sys/wait.h>
-#include <sys/prctl.h>
 #include <event2/event.h>
 #include <errno.h>
 #include <msgpack.h>
-#include <locale.h>
 
+#include "child.h"
 #include "minipot_config.h"
 #include "proxy.h"
 #include "cli_opts.h"
 #include "utils.h"
-#include "telnet.h"
-#include "http.h"
-#include "ftp.h"
-#include "smtp.h"
 
 enum minipot_error {
 	MP_ERR_OK,
@@ -65,11 +58,9 @@ struct pipe_data{
 struct service_data {
 	pid_t child_pid;
 	int pipe[2];
-	uint16_t port;
-	const char *user;
 	struct event *read_ev;
 	struct pipe_data pipe_data;
-	enum minipot_type type;
+	struct child_data child_data;
 };
 
 static struct event_base *ev_base;
@@ -185,21 +176,6 @@ static void pipe_read(int fd, short ev, void *arg) {
 	proc_pipe_data(buffer, (size_t) nbytes, pipe_data);
 }
 
-static int drop_privileges(const char *username) {
-	if (!geteuid()) { // Chroot and change user and group only if we are root
-		struct passwd *user = getpwnam(username);
-		if (!user || chroot("/var/empty") || chdir("/") ||
-			setresgid(user->pw_gid, user->pw_gid, user->pw_gid) ||
-			setgroups(1, &user->pw_gid) ||
-			setresuid(user->pw_uid, user->pw_uid, user->pw_uid) ||
-			(geteuid() == 0) || (getegid() == 0) ) {
-			return -1;
-		}
-	}
-	if (prctl(PR_SET_NO_NEW_PRIVS, 1, 0, 0, 0))
-		return -1;
-	return 0;
-}
 
 static int start_service(struct service_data *service_data) {
 	if (pipe(service_data->pipe) < 0)
@@ -210,38 +186,8 @@ static int start_service(struct service_data *service_data) {
 		close(service_data->pipe[0]);
 		return -1;
 	}
-	if (service_data->child_pid == 0) {
-		// child process
-		if (drop_privileges(service_data->user) != 0) {
-			DEBUG_PRINT("child - could not drop privildges");
-			exit(EXIT_FAILURE);
-		}
-		prctl(PR_SET_PDEATHSIG, SIGKILL);
-		close(service_data->pipe[0]);
-		setlocale(LC_ALL, "C"); // Unset any locale to hide system locales
-		switch (service_data->type) {
-			case MP_TYPE_TELNET:
-				prctl(PR_SET_NAME, "Minipot [Telnet]");
-				handle_telnet(service_data->port, service_data->pipe[1]);
-				break;
-			case MP_TYPE_HTTP:
-				prctl(PR_SET_NAME, "Minipot [HTTP]");
-				handle_http(service_data->port, service_data->pipe[1]);
-				break;
-			case MP_TYPE_FTP:
-				prctl(PR_SET_NAME, "Minipot [FTP]");
-				handle_ftp(service_data->port, service_data->pipe[1]);
-				break;
-			case MP_TYPE_SMTP:
-				prctl(PR_SET_NAME, "Minipot [SMTP]");
-				handle_smtp(service_data->port, service_data->pipe[1]);
-				break;
-			default:
-				DEBUG_PRINT("child - unknown minipot type\n");
-				exit(EXIT_FAILURE);
-				break;
-		}
-	}
+	if (service_data->child_pid == 0)
+		exit(handle_child(&service_data->child_data));
 	close(service_data->pipe[1]);
 	setnonblock(service_data->pipe[0]);
 	event_assign(service_data->read_ev, ev_base, service_data->pipe[0], EV_READ | EV_PERSIST, pipe_read, &service_data->pipe_data);
@@ -269,9 +215,9 @@ static int deploy_minipot(struct service_data *data, struct minipot_conf *conf, 
 	if (init_pipe_data(&data->pipe_data) != 0)
 		return -1;
 	data->read_ev = event_new(NULL, 0, 0, NULL, NULL);
-	data->port = conf->port;
-	data->type = conf->type;
-	data->user = user;
+	data->child_data.port = conf->port;
+	data->child_data.type = conf->port;
+	data->child_data.user = user;
 	data->child_pid = -1;
 	if (start_service(data) != 0) {
 		free_minipot(data);

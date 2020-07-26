@@ -187,34 +187,3 @@ void concat_mesg(char **buff, size_t args_num, ...) {
 		strcat(*buff, va_arg(args, char*));
 	va_end(args);
 }
-
-int setup_sock(int *fd) {
-	*fd = socket(AF_INET6, SOCK_STREAM, 0);
-	if (*fd == -1)
-		return -1;
-
-	int flag = 1;
-	if (setsockopt(*fd, SOL_SOCKET, SO_REUSEADDR, &flag, sizeof(flag)) != 0)
-		goto err;
-	flag = 0;
-	if (setsockopt(*fd, IPPROTO_IPV6, IPV6_V6ONLY, &flag, sizeof(flag)) != 0)
-		goto err;
-	if (setnonblock(*fd) != 0)
-		goto err;
-	return 0;
-
-err:
-	close(*fd);
-	return -1;
-}
-
-int bind_to_port(int fd, uint16_t port) {
-	struct sockaddr_in6 listen_addr;
-	memset(&listen_addr, 0, sizeof(listen_addr));
-	listen_addr.sin6_family = AF_INET6;
-	listen_addr.sin6_addr = in6addr_any;
-	listen_addr.sin6_port = htons(port);
-	if (bind(fd, (struct sockaddr *)&listen_addr, sizeof(listen_addr)) != 0)
-		return -1;
-	return 0;
-}

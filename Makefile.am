@@ -9,7 +9,8 @@ sentinel_minipot_SOURCES = \
 	ftp.c \
 	smtp.c \
 	cli_opts.c \
-	minipot_pipe.c
+	minipot_pipe.c \
+	child.c
 
 sentinel_minipot_CFLAGS = \
 	${czmq_CFLAGS} \
