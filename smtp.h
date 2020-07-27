@@ -22,6 +22,6 @@
 /*
  * Runs SMTP minimal honeypot.
  */
-void handle_smtp(uint16_t port, int reporting_fd);
+int handle_smtp(int listen_fd, int reporting_fd);
 
 #endif /*__SENTINEL_MINIPOT_SMTP__*/

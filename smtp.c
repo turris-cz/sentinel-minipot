@@ -1009,29 +1009,14 @@ static void gen_host_name() {
 	}
 }
 
-void handle_smtp(uint16_t port, int pipe_write_fd) {
+int handle_smtp(int listen_fd, int pipe_write_fd) {
 	exit_code = EXIT_SUCCESS;
 	report_fd = pipe_write_fd;
-	int listen_fd;
-	if (setup_sock(&listen_fd) != 0) {
-		DEBUG_PRINT("smtp - error - couldn't setup socket\n");
-		exit_code = EXIT_FAILURE;
-		goto socket_err1;
-	}
-	if (bind_to_port(listen_fd, port) != 0) {
-		DEBUG_PRINT("smtp - error - couldn't  bind to port fd: %d\n", listen_fd);
-		exit_code = EXIT_FAILURE;
-		goto socket_err2;
-	}
-	if (listen(listen_fd, 5) != 0) {
-		DEBUG_PRINT("smtp - error - couldn't listen on port fd: %d\n", listen_fd);
-		exit_code = EXIT_FAILURE;
-		goto socket_err2;
-	}
+	// to supress evenet base logging
+	event_set_log_callback(ev_base_discard_cb);
 	if (alloc_glob_res() != 0 ) {
 		DEBUG_PRINT("smtp - error - couldn't allocate global resources\n");
-		exit_code = EXIT_FAILURE;
-		goto socket_err2;
+		return EXIT_FAILURE;
 	}
 	struct event *sigint_ev = event_new(ev_base, SIGINT, EV_SIGNAL, on_sigint, ev_base);
 	if (sigint_ev == NULL) {
@@ -1041,8 +1026,6 @@ void handle_smtp(uint16_t port, int pipe_write_fd) {
 	}
 	gen_host_name();
 	signal(SIGPIPE, SIG_IGN);
-	// to supress evenet base logging
-	event_set_log_callback(ev_base_discard_cb);
 	event_assign(accept_ev, ev_base, listen_fd, EV_READ | EV_PERSIST, on_accept, NULL);
 	event_add(accept_ev, NULL);
 	event_add(sigint_ev, NULL);
@@ -1051,11 +1034,5 @@ void handle_smtp(uint16_t port, int pipe_write_fd) {
 
 	sigint_ev_err:
 	free_glob_res();
-
-	socket_err2:
-	close(listen_fd);
-
-	socket_err1:
-	close(report_fd);
-	exit(exit_code);
+	return exit_code;
 }
