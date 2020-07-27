@@ -16,24 +16,15 @@
  *  along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
-#ifndef __SENTINEL_MINIPOT_PROXY_H__
-#define __SENTINEL_MINIPOT_PROXY_H__
+#ifndef __SENTINEL_MINIPOT_MASTER_PIPE_H__
+#define __SENTINEL_MINIPOT_MASTER_PIPE_H__
 
 #include "minipot_config.h"
 
-/*
- * Initializes connection to Sentinel Proxy - messages relaying component.
- */
-int proxy_init(struct event_base *ev_base, struct configuration *conf);
+int master_pipe_alloc(struct configuration *conf);
+void master_pipe_free();
+void master_pipe_register_child(int read_fd);
+int master_pipe_run(struct configuration *conf);
+void master_pipe_break();
 
-/*
- * Adds message for sending to Proxy component.
- */
-void proxy_add(msgpack_sbuffer *sbuf);
-
-/*
- * Frees Proxy communication related resources.
- */
-void proxy_exit();
-
-#endif /*__SENTINEL_MINIPOT_PROXY_H__*/
+#endif /*__SENTINEL_MINIPOT_MASTER_PIPE_H__*/
