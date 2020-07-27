@@ -20,13 +20,24 @@
 #define __SENTINEL_MINIPOT_CONFIG_H__
 
 #include <stdint.h>
-#include <stdlib.h>
-#include <msgpack.h>
 
 #define DEFAULT_LOCAL_SOCKET "ipc:///tmp/sentinel_pull.sock"
 #define DEFAULT_TOPIC "sentinel/collect/minipot"
 #define DEFAULT_USER "nobody"
 #define MAX_MINIPOT_COUNT 10
+
+enum minipot_error {
+	MP_ERR_OK,
+	MP_ERR_CLI,
+	MP_ERR_CHILD,
+	MP_ERR_SERVICE,
+	MP_ERR_PROXY_CONN,
+	MP_ERR_PIPE_MALLOC,
+	MP_ERR_PROXY_SENT,
+	MP_ERR_PIPE_READ,
+	MP_ERR_PIPE_PROTOCOL,
+	MP_ERR_NUM_CODES // number of minipot errors
+};
 
 enum minipot_type {
 	MP_TYPE_TELNET,
