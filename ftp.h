@@ -22,7 +22,8 @@
 
 /*
  * Runs FTP minimal honeypot.
+ * Returns minimal honeypot exit code.
  */
-void handle_ftp(uint16_t port, int pipe_write_fd);
+int handle_ftp(int listen_fd, int pipe_write_fd);
 
 #endif /*__SENTINEL_MINIPOT_FTP_*/
