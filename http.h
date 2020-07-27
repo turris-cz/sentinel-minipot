@@ -21,7 +21,8 @@
 
 /*
  * Runs HTTP minimal honeypot.
+ * Returns minimal honeypot return code.
  */
-void handle_http(uint16_t port, int reporting_fd);
+int handle_http(int listen_fd, int reporting_fd);
 
 #endif /*__SENTINEL_MINIPOT_HTTP_H__*/
