@@ -2,7 +2,7 @@ bin_PROGRAMS = sentinel-minipot
 
 sentinel_minipot_SOURCES = \
 	main.c \
-	proxy.c \
+	master_pipe.c \
 	utils.c \
 	telnet.c \
 	http.c \
