@@ -17,6 +17,7 @@
  */
 
 #include <argp.h>
+#include <stdlib.h>
 
 #include "minipot_config.h"
 
@@ -97,14 +98,14 @@ int load_cli_opts(int argc, char **argv, struct configuration *conf ) {
 	error_t err = argp_parse(&arg_parser, argc, argv, 0 , 0, conf);
 	if (err == ARGP_ERR_UNKNOWN) {
 		fprintf(stderr, "Error - argp unknown error\n");
-		return -1;
+		return MP_ERR_CLI;
 	} else if (err == ARGP_ERROR_PORT_OUT_RAN) {
 		fprintf(stderr, "Error - port must be 0-65535!\n");
-		return -1;
+		return MP_ERR_CLI;
 	} else if (conf->minipots_count < 1) {
 		fprintf(stderr, "At least one minipot must be defined!\n");
 		argp_help(&arg_parser, stdout, ARGP_HELP_USAGE, PACKAGE_NAME);
-		return -1;
+		return MP_ERR_CLI;
 	}
-	return 0;
+	return MP_ERR_OK;
 }
