@@ -22,6 +22,6 @@
 /*
  * Runs Telnet minimal honeypot.
  */
-void handle_telnet(uint16_t port, int reporting_fd);
+int handle_telnet(int listen_fd, int reporting_fd);
 
 #endif /*__SENTINEL_MINIPOT_TELNET_H__*/
