@@ -17,10 +17,10 @@ TYPE = b"telnet"
 LOGIN_USER = b"username"
 LOGIN_PASS = b"password"
 
-ASK_FOR_USER = b"login: \xff\xf9"
-ASK_FOR_PASSW = b"password: \xff\xf9"
+ASK_FOR_USER = b"Username: \xff\xf9"
+ASK_FOR_PASSW = b"Password: \xff\xf9"
 PROTOCOL_ERR = b"Protocol error\r\n\xff\xf9"
-INCORR_LOGIN = b"Login incorrect\n"
+INCORR_LOGIN = b"Login incorrect\r\n\xff\xf9"
 
 
 def gen_connect_report(ip):
