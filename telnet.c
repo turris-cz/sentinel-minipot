@@ -39,10 +39,11 @@
 #define LOGIN_USER "username"
 #define LOGIN_PASS "password"
 
-#define ASK_FOR_USER "login: \xff\xf9"
-#define ASK_FOR_PASSW "password: \xff\xf9"
+// \xff \xf9 = IAC GA
+#define ASK_FOR_USER "Username: \xff\xf9"
+#define ASK_FOR_PASSW "Password: \xff\xf9"
 #define PROTOCOL_ERR "Protocol error\r\n\xff\xf9"
-#define INCORR_LOGIN "Login incorrect\n"
+#define INCORR_LOGIN "Login incorrect\r\n\xff\xf9"
 
 enum expect {
 	EXPECT_NONE,
@@ -50,26 +51,26 @@ enum expect {
 	EXPECT_OPCODE,
 	EXPECT_PARAMS,
 	EXPECT_PARAMS_END,
-	EXPECT_LF
+	EXPECT_LF,
 };
 
 enum command {
-	CMD_SE = 240,
-	CMD_NOP = 241,
-	CMD_DM = 242,
-	CMD_BREAK = 243,
-	CMD_IP = 244,
-	CMD_AO = 245,
-	CMD_AYT = 246,
-	CMD_EC = 247,
-	CMD_EL = 248,
-	CMD_GA = 249,
-	CMD_SB = 250,
+	CMD_SE = 240,		// end of subnegotiation parameters
+	CMD_NOP = 241,		// no operation
+	CMD_DM = 242,		// data mark
+	CMD_BREAK = 243,	// NVT character BRK
+	CMD_IP = 244,		// intrerrupt process function
+	CMD_AO = 245,		// abort output function
+	CMD_AYT = 246,		// are you there function
+	CMD_EC = 247,		// erase character function
+	CMD_EL = 248,		// erase line function
+	CMD_GA = 249,		// go ahead signal
+	CMD_SB = 250,		// subnegotiation start
 	CMD_WILL = 251,
 	CMD_WONT = 252,
 	CMD_DO = 253,
 	CMD_DONT = 254,
-	CMD_IAC = 255
+	CMD_IAC = 255,		// interpret as command
 };
 
 enum position {
@@ -322,98 +323,74 @@ static int proc_line(struct conn_data *conn_data) {
 	}
 }
 
+static int expect_opcode(struct conn_data *conn_data, uint8_t ch) {
+	conn_data->expect = EXPECT_NONE;
+	char mesg[3] = {CMD_IAC, 0, ch};
+	switch (conn_data->neg_verb) {
+		case CMD_WILL:
+			// refuse - WILL -> DON'T
+			mesg[1] = CMD_DONT;
+			return send_all(conn_data->fd, mesg, sizeof(mesg));
+		case CMD_DO:
+			// refuse - DO -> WON'T
+			mesg[1] = CMD_WONT;
+			return send_all(conn_data->fd, mesg, sizeof(mesg));
+		case CMD_WONT:
+		case CMD_DONT:
+			// request to turn off the option -> do nothing
+			return 0;
+		default:
+			DEBUG_PRINT("telnet - expect opcode - default\n");
+			return -1;
+	}
+}
+
 static int cmd_handle(struct conn_data *conn_data, uint8_t cmd) {
 	switch (cmd) {
-		case CMD_SE:
-			// Unexpected subnegotiation end
-			// this should not be here, it should appear in EXPECT_PARAMS_END
-			send_resp(conn_data, PROTOCOL_ERR);
-			return -1;
-		case CMD_NOP:
-			// NOP
-		case CMD_DM:
-			// Data Mark - not implemented and ignored
-		case CMD_BREAK:
-			// Break - just strange character
-		case CMD_AO:
-			// Abort output - not implemented
-		case CMD_AYT:
-			// Are You There - not implemented
-		case CMD_GA:
-			// Go Ahead - not interesting to us
-			conn_data->expect = EXPECT_NONE;
-			return 0;
 		case CMD_SB:
-			// Subnegotiation parameters
+			// start of subnegotiation
 			conn_data->expect = EXPECT_PARAMS;
 			return 0;
-		case CMD_WILL:
-		case CMD_WONT:
-		case CMD_DO:
-		case CMD_DONT:
-			conn_data->expect = EXPECT_OPCODE;
-			conn_data->neg_verb = cmd;
-			return 0;
-		case CMD_IP:
-			// Interrupt process - abort connection
-			send_resp(conn_data, PROTOCOL_ERR);
-			return -1;
 		case CMD_EC:
-			// Erase character
+			// erase last character
 			if (conn_data->line_wrt_ptr > conn_data->line_start_ptr) {
 				conn_data->line_wrt_ptr--;
 			}
 			conn_data->expect = EXPECT_NONE;
 			return 0;
 		case CMD_EL:
-			// Erase Line - ignored
+			// erase line
 			conn_data->line_wrt_ptr = conn_data->line_start_ptr;
+			conn_data->expect = EXPECT_NONE;
 			return 0;
+		case CMD_WILL:
+		case CMD_WONT:
+		case CMD_DO:
+		case CMD_DONT:
+			// option negotiation
+			conn_data->expect = EXPECT_OPCODE;
+			conn_data->neg_verb = cmd;
+			return 0;
+		case CMD_NOP:
+		case CMD_DM:
+		case CMD_BREAK:
+		case CMD_AO:
+		case CMD_AYT:
+		case CMD_GA:
+		case CMD_IP:
+			// Not implemented
+			conn_data->expect = EXPECT_NONE;
+			return 0;
+		case CMD_SE:
+		case CMD_IAC:
 		default:
-			// Unknown command
+			// error
 			send_resp(conn_data, PROTOCOL_ERR);
 			return -1;
 	}
 }
 
-static int char_handle(struct conn_data *conn_data, uint8_t ch) {
-	switch (conn_data->expect) {
-		case EXPECT_NONE:
-			break;
-		case EXPECT_CMD:
-			return cmd_handle(conn_data, ch);
-		case EXPECT_OPCODE: {
-				if (conn_data->neg_verb == CMD_WILL || conn_data->neg_verb == CMD_DO) {
-					// Refuse the option
-					// WILL->DON'T, DO->WON'T
-					uint8_t cmd = (conn_data->neg_verb ^ (CMD_WILL ^ CMD_DO)) + 1;
-					char message[3] = {CMD_IAC, cmd, ch};
-					return send_all(conn_data->fd, message, sizeof(message));
-				} else {
-					// it's off, so this is OK, no reaction
-					conn_data->expect = EXPECT_NONE;
-					return 0;
-				}
-			}
-		case EXPECT_PARAMS:
-			if (ch == CMD_IAC)
-				conn_data->expect = EXPECT_PARAMS_END;
-			return 0;
-		case EXPECT_PARAMS_END:
-			if (ch == CMD_SE)
-				conn_data->expect = EXPECT_NONE;
-			else
-				conn_data->expect = EXPECT_PARAMS;
-			return 0;
-		case EXPECT_LF:
-			if (ch == LF)
-				FLOW_GUARD(proc_line(conn_data));
-			conn_data->expect = EXPECT_NONE;
-			return 0;
-		default:
-			break;
-	}
-	// We are in a normal mode, decide if we see anything special
+static int expect_none(struct conn_data *conn_data, uint8_t ch) {
 	switch (ch) {
 		case CMD_IAC:
 			conn_data->expect = EXPECT_CMD;
@@ -427,6 +404,35 @@ static int char_handle(struct conn_data *conn_data, uint8_t ch) {
 			break;
 	}
 	return 0;
+}
+
+static int char_handle(struct conn_data *conn_data, uint8_t ch) {
+	switch (conn_data->expect) {
+		case EXPECT_NONE:
+			return expect_none(conn_data, ch);
+		case EXPECT_CMD:
+			return cmd_handle(conn_data, ch);
+		case EXPECT_OPCODE:
+			return expect_opcode(conn_data, ch);
+		case EXPECT_PARAMS:
+			if (ch == CMD_IAC)
+				conn_data->expect = EXPECT_PARAMS_END;
+			return 0;
+		case EXPECT_PARAMS_END:
+			if (ch == CMD_SE)
+				conn_data->expect = EXPECT_NONE;
+			else
+				conn_data->expect = EXPECT_PARAMS;
+			return 0;
+		case EXPECT_LF:
+			conn_data->expect = EXPECT_NONE;
+			if (ch == LF)
+				return proc_line(conn_data);
+			return 0;
+		default:
+			DEBUG_PRINT("telnet -  char handle - default\n");
+			return -1;
+	}
 }
 
 static void on_timeout(int fd, short ev, void *arg){
