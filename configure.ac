@@ -1,4 +1,4 @@
-AC_INIT([sentinel-minipot], [2.0], [tech.support@turris.cz])
+AC_INIT([sentinel-minipot], [2.0.1], [tech.support@turris.cz])
 
 AM_INIT_AUTOMAKE([foreign subdir-objects -Wall -Wno-portability])
 AC_PROG_CC
