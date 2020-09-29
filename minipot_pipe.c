@@ -58,14 +58,7 @@ int proxy_report(int pipe_fd, struct proxy_data *proxy_data) {
 	msgpack_packer_init(&pk, &sbuf, msgpack_sbuffer_write);
 	// ts, type, action, ip are mandatory
 	// data are optional
-	size_t valid_data_len = 0;
-	if (proxy_data->data) {
-		for (size_t i = 0; i < proxy_data->data_len; i++)
-			if (proxy_data->data[i].key && proxy_data->data[i].val &&
-				proxy_data->data[i].key_len >= 1 && proxy_data->data[i].val_len >= 1)
-				valid_data_len++;
-	}
-	size_t map_size = (valid_data_len > 0) ? 5 : 4;
+	size_t map_size = (proxy_data->data_len > 0) ? 5 : 4;
 	msgpack_pack_map(&pk, map_size);
 	if (proxy_data->ts) {
 		PACK_STR(&pk, "ts");
@@ -95,25 +88,37 @@ int proxy_report(int pipe_fd, struct proxy_data *proxy_data) {
 		DEBUG_PRINT("proxy report - wrong action\n");
 		DES_AND_RET(&sbuf);
 	}
-	if (valid_data_len > 0) {
-		// pack valid data if any
+	if (proxy_data->data_len > 0) {
+		if (proxy_data->data == NULL) {
+			DEBUG_PRINT("proxy report - data ptr is NULL\n");
+			DES_AND_RET(&sbuf);
+		}
 		msgpack_sbuffer data_sbuf;
 		msgpack_packer data_pk;
 		msgpack_sbuffer_init(&data_sbuf);
 		msgpack_packer_init(&data_pk, &data_sbuf, msgpack_sbuffer_write);
-		msgpack_pack_map(&data_pk, valid_data_len);
-		for (size_t i = 0; i < proxy_data->data_len; i++)
-			if (proxy_data->data[i].key && proxy_data->data[i].val &&
-				proxy_data->data[i].key_len >= 1 && proxy_data->data[i].val_len >= 1) {
+		msgpack_pack_map(&data_pk, proxy_data->data_len);
+
+		for (size_t i = 0; i < proxy_data->data_len; i++) {
+				// key must have length at least 1
+				if (proxy_data->data[i].key_len < 1 || proxy_data->data[i].key == NULL) {
+					DEBUG_PRINT("proxy report - data key is invalid\n");
+					DES_AND_RET(&data_sbuf);
+					DES_AND_RET(&sbuf);
+				}
 				msgpack_pack_str(&data_pk, proxy_data->data[i].key_len);
 				msgpack_pack_str_body(&data_pk, proxy_data->data[i].key, proxy_data->data[i].key_len);
+				// value can have zero length
+				if (proxy_data->data[i].val_len > 0 && proxy_data->data[i].val == NULL) {
+					DEBUG_PRINT("proxy report - data value is invalid\n");
+					DES_AND_RET(&data_sbuf);
+					DES_AND_RET(&sbuf);
+				}
 				msgpack_pack_str(&data_pk, proxy_data->data[i].val_len);
 				msgpack_pack_str_body(&data_pk, proxy_data->data[i].val, proxy_data->data[i].val_len);
-			}
+		}
 		PACK_STR(&pk,"data");
-		// normally, one would expect msgpack_pack_bin(&pk, messages[i].len) here - to append header for the binary
-		// but we don't want that here - Data received already have its header. Doing that would result in corrupt msgpack.
-		// just pack binary, without header
+		// pack binary without header, because the data are already serialized
 		msgpack_pack_str_body(&pk, data_sbuf.data, data_sbuf.size);
 		msgpack_sbuffer_destroy(&data_sbuf);
 	}
