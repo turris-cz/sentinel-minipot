@@ -1,8 +1,7 @@
 #!/usr/bin/env python3
 
-from utils import *
-import proxy
-import time
+from framework.utils import *
+from framework.proxy import gen_proxy_report
 
 
 MAX_CONN_COUNT = 5
@@ -24,162 +23,149 @@ INCORR_LOGIN = b"Login incorrect\r\n\xff\xf9"
 
 
 def gen_connect_report(ip):
-	""" Generates proxy report connect message.
-		ip - string
-		returns dictionary """
-	return proxy.gen_proxy_report2(TYPE, CONNECT_EV, ip, None)
+    """ Generates proxy report connect message.
+        ip - string
+        returns dictionary """
+    return gen_proxy_report(TYPE, CONNECT_EV, ip, None)
 
 
 def gen_login_report(ip, user=b"", password=b""):
-	""" Generates proxy report login message.
-		ip - string
-		user -  bytes
-		password - bytes
-		returns dictionary"""
-	data = {}
-	if user:
-		data[LOGIN_USER] = user
-	if password:
-		data[LOGIN_PASS] = password
-
-	return proxy.gen_proxy_report2(TYPE, LOGIN_EV, ip, data)
-
-
-
-def gen_rand_bytes(bytelist, len):
-	""" generates bytes of given len with values randomly chosen from bytelist """
-	b = bytearray(len)
-	i = 0
-	while i < len:
-		b[i] = random.choice(bytelist)
-		i = i +1
-	return bytes(b)
+    """ Generates proxy report login message.
+        ip - string
+        user -  bytes
+        password - bytes
+        returns dictionary"""
+    data = {
+        LOGIN_USER: user,
+        LOGIN_PASS: password,
+    }
+    return gen_proxy_report(TYPE, LOGIN_EV, ip, data)
 
 
 def login_test1(server_sock):
-	ip_addr = get_ip_addr2(server_sock)
-	reports = [gen_connect_report(ip_addr)]
-	response = recv_from_sock(server_sock)
-	# print(response)
-	str_cmp(response, ASK_FOR_USER)
+    ip_addr = get_ip_addr(server_sock)
+    reports = [gen_connect_report(ip_addr)]
+    response = recv_from_sock(server_sock)
+    # print(response)
+    assert response == ASK_FOR_USER
 
-	bytelist = list(range(33,126))
+    bytelist = list(range(33,126))
 
-	user = gen_rand_bytes(bytelist, 4090)
+    user = gen_rand_bytes(bytelist, 4090)
 
-	cmd = b"".join([user, b"\r\n"])
-	send_to_sock(server_sock, cmd)
+    cmd = b"".join([user, b"\r\n"])
+    server_sock.sendall(cmd)
 
-	response = recv_from_sock(server_sock)
-	# print(response)
-	str_cmp(response, ASK_FOR_PASSW)
+    response = recv_from_sock(server_sock)
+    # print(response)
+    assert response == ASK_FOR_PASSW
 
-	passw = gen_rand_bytes(bytelist, 4090)
+    passw = gen_rand_bytes(bytelist, 4090)
 
-	cmd = b"".join([passw, b"\r\n"])
-	send_to_sock(server_sock, cmd)
+    cmd = b"".join([passw, b"\r\n"])
+    server_sock.sendall(cmd)
 
-	reports.append(gen_login_report(ip_addr, user[:MAX_LINE_LEN], passw[:MAX_LINE_LEN]))
+    reports.append(gen_login_report(ip_addr, user[:MAX_LINE_LEN], passw[:MAX_LINE_LEN]))
 
-	response = recv_from_sock(server_sock)
-	# print(response)
-	str_cmp(response, INCORR_LOGIN)
+    response = recv_from_sock(server_sock)
+    # print(response)
+    assert response == INCORR_LOGIN
 
-	return reports
+    return reports
 
 
 def login_test2(server_sock):
-	ip_addr = get_ip_addr2(server_sock)
-	reports = [gen_connect_report(ip_addr)]
-	response = recv_from_sock(server_sock)
-	# print(response)
-	str_cmp(response, ASK_FOR_USER)
+    ip_addr = get_ip_addr(server_sock)
+    reports = [gen_connect_report(ip_addr)]
+    response = recv_from_sock(server_sock)
+    # print(response)
+    assert response == ASK_FOR_USER
 
 
-	cmd = b"\r\n"
-	send_to_sock(server_sock, cmd)
+    cmd = b"\r\n"
+    server_sock.sendall(cmd)
 
-	response = recv_from_sock(server_sock)
-	# print(response)
-	str_cmp(response, ASK_FOR_PASSW)
+    response = recv_from_sock(server_sock)
+    # print(response)
+    assert response == ASK_FOR_PASSW
 
-	cmd = b"\r\n"
-	send_to_sock(server_sock, cmd)
+    cmd = b"\r\n"
+    server_sock.sendall(cmd)
 
-	reports.append(gen_login_report(ip_addr))
+    reports.append(gen_login_report(ip_addr))
 
-	response = recv_from_sock(server_sock)
-	# print(response)
-	str_cmp(response, INCORR_LOGIN)
+    response = recv_from_sock(server_sock)
+    # print(response)
+    assert response == INCORR_LOGIN
 
-	return reports
+    return reports
 
 
 
 def login_test3(server_sock):
-	ip_addr = get_ip_addr2(server_sock)
-	reports = [gen_connect_report(ip_addr)]
-	response = recv_from_sock(server_sock)
-	# print(response)
-	str_cmp(response, ASK_FOR_USER)
+    ip_addr = get_ip_addr(server_sock)
+    reports = [gen_connect_report(ip_addr)]
+    response = recv_from_sock(server_sock)
+    # print(response)
+    assert response == ASK_FOR_USER
 
-	bytelist = list(range(33,126))
+    bytelist = list(range(33,126))
 
-	user = gen_rand_bytes(bytelist, 1)
+    user = gen_rand_bytes(bytelist, 1)
 
-	cmd = b"".join([user, b"\r\n"])
-	send_to_sock(server_sock, cmd)
+    cmd = b"".join([user, b"\r\n"])
+    server_sock.sendall(cmd)
 
-	response = recv_from_sock(server_sock)
-	# print(response)
-	str_cmp(response, ASK_FOR_PASSW)
+    response = recv_from_sock(server_sock)
+    # print(response)
+    assert response == ASK_FOR_PASSW
 
-	passw = gen_rand_bytes(bytelist, 1)
+    passw = gen_rand_bytes(bytelist, 1)
 
-	cmd = b"".join([passw, b"\r\n"])
-	send_to_sock(server_sock, cmd)
+    cmd = b"".join([passw, b"\r\n"])
+    server_sock.sendall(cmd)
 
-	reports.append(gen_login_report(ip_addr, user, passw))
+    reports.append(gen_login_report(ip_addr, user, passw))
 
-	response = recv_from_sock(server_sock)
-	# print(response)
-	str_cmp(response, INCORR_LOGIN)
+    response = recv_from_sock(server_sock)
+    # print(response)
+    assert response == INCORR_LOGIN
 
-	return reports
+    return reports
 
 
 
 
 def bruteforce_test(server_sock):
-	ip_addr = get_ip_addr2(server_sock)
-	reports = [gen_connect_report(ip_addr)]
+    ip_addr = get_ip_addr(server_sock)
+    reports = [gen_connect_report(ip_addr)]
 
-	for i in range(MAX_ATTEMPTS):
-		response = recv_from_sock(server_sock)
-		# print(response)
-		str_cmp(response, ASK_FOR_USER)
-		bytelist = list(range(33,126))
+    for i in range(MAX_ATTEMPTS):
+        response = recv_from_sock(server_sock)
+        # print(response)
+        assert response == ASK_FOR_USER
+        bytelist = list(range(33,126))
 
-		user = gen_rand_bytes(bytelist, 4090)
+        user = gen_rand_bytes(bytelist, 4090)
 
-		cmd = b"".join([user, b"\r\n"])
-		send_to_sock(server_sock, cmd)
+        cmd = b"".join([user, b"\r\n"])
+        server_sock.sendall(cmd)
 
-		response = recv_from_sock(server_sock)
-		# print(response)
-		str_cmp(response, ASK_FOR_PASSW)
+        response = recv_from_sock(server_sock)
+        # print(response)
+        assert response == ASK_FOR_PASSW
 
-		passw = gen_rand_bytes(bytelist, 4090)
+        passw = gen_rand_bytes(bytelist, 4090)
 
-		cmd = b"".join([passw, b"\r\n"])
-		send_to_sock(server_sock, cmd)
+        cmd = b"".join([passw, b"\r\n"])
+        server_sock.sendall(cmd)
 
-		reports.append(gen_login_report(ip_addr, user[:1024], passw[:1024]))
+        reports.append(gen_login_report(ip_addr, user[:1024], passw[:1024]))
 
-		response = recv_from_sock(server_sock)
-		print(response)
-		# print(INCORR_LOGIN)
-		# print("------")
-		str_cmp(response, INCORR_LOGIN)
+        response = recv_from_sock(server_sock)
+        print(response)
+        # print(INCORR_LOGIN)
+        # print("------")
+        assert response == INCORR_LOGIN
 
-	return reports
+    return reports

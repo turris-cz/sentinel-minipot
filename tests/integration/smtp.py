@@ -1,858 +1,2587 @@
 #!/usr/bin/env python3
+
+from framework.utils import *
+from framework.proxy import gen_proxy_report
 import base64
-from utils import *
-import proxy
 
-# replies
+ERROR_LIMIT = 20
+TOKEN_BUFF_LEN = 16384
 
-SMTP_220_WELCOME_REP = b"220 <service> service reday\r\n"
-SMTP_221_200_REP = b"221 2.0.0 <service> closing connection\r\n"
-SMTP_250_EHLO_REP = b"250-<service> Hello\r\n250-SIZE 100000\r\n250-AUTH PLAIN LOGIN\r\n250-ENHANCEDSTATUSCODES\r\n250 8BITMIME\r\n"
-SMTP_250_HELO_REP = b"250-<service> Hello\r\n"
-SMTP_250_200_NOOP_REP = b"250 2.0.0 OK\r\n"
-SMTP_250_200_RSET_REP = b"250 2.0.0 Flushed\r\n"
-SMTP_334_LOG_USER_REP = b"334 VXNlcm5hbWU6\r\n"
-SMTP_334_LOG_PASS_REP = b"334 UGFzc3dvcmQ6\r\n"
-SMTP_334_PL_REP = b"334 \r\n"
-SMTP_421_REP = b"421 <service not available. Closing connection\r\n>"
-SMTP_500_REP = b"500 Unrecognized command\r\n"
-SMTP_501_HELO_REP = b"501  Invalid domain name\r\n"
-SMTP_501_554_REP = b"501 5.5.4 Malformed authentication data\r\n"
-SMTP_504_576_REP = b"504 5.7.6 Authentication mechanism not supported\r\n"
-SMTP_530_570_REP = b"530 5.7.0 Authentication required\r\n"
-SMTP_535_578_REP = b"535 5.7.8 Authentication credentials invalid\r\n"
+TOKEN_SEPARATORS = [9,11,12,13,32]
 
+TYPE = b"smtp"
+CONNECT_EV = b"connect"
+LOGIN_EV = b"login"
+PLAIN_EV = b"plain"
+LOGIN_USER = b"username"
+LOGIN_PASS = b"password"
+PLAIN_DATA = b"data"
 
+TOUT_RESP = b"421 4.4.2 <> Error: timeout exceeded\r\n"
+WELCOME_RESP = b"220"
+TOO_LONG_DATA_RESP = b"500 5.5.0 Error: line too long\r\n"
+TOO_MUCH_ERR_RESP = b"421 4.7.0 <> Error: too many errors\r\n"
+EMPTY_LINE_RESP = b"500 5.5.2 Error: bad syntax\r\n"
+UNKNOWN_CMD_RESP = b"502 5.5.2 Error: command not recognized\r\n"
 
-def gen_plain_auth_data(authzid="", authcid="", passw=""):
-    """ Generates and base 64 encode sasl plain authentication data.
-    authzid -  string
-    authcid - string
-    passw - string
-    returns string """
-    data = authzid.encode() + b"\x00" + authcid.encode() + b"\x00" + passw.encode()
-    return base64.standard_b64encode(data).decode()
+EHLO_250_RESP = b"250"
 
+EHLO_501_RESP = b"501 Syntax: EHLO hostname\r\n"
 
-# command generators
+HELO_250_RESP = b"250"
 
-def gen_cmd(cmd, param=""):
-    """ Generates byte string from given comand and parameters 
-        cmd - string 
-        param -  string 
-        return bytes """
-    if not cmd or not cmd.strip():
-        raise Exception("gen_cmd - cmd must NOT be empty")
-    if param:
-        return cmd.encode() + b" " + param.encode() + b"\r\n"
-    else:
-        return cmd.encode() + b"\r\n"
+HELO_501_RESP = b"501 Syntax: HELO hostname\r\n"
 
+ETRN_EXPECT_HELO_RESP = b"503 Error: send HELO/EHLO first\r\n"
+ETRN_HELO_554_RESP_PART1 = b"554 5.7.1 <unknown["
+ETRN_HELO_554_RESP_PART2 = b"]>: Client host rejected: Access denied\r\n"
+ETRN_HELO_500_RESP = b"500 Syntax: ETRN domain\r\n"
+ETRN_HELO_MAIL_RESP = b"503 Error: MAIL transaction in progress\r\n"
 
-def gen_help_cmd(param=""):
-    """ 
-    param - string
-    returns bytes """
-    return gen_cmd("help", param)
+OK_RESP = b"250 2.0.0 Ok\r\n"
 
+QUIT_RESP = b"221 2.0.0 Bye\r\n"
 
-def gen_mail_cmd(param=""):
-    """ 
-    param - string
-    returns bytes """
-    return gen_cmd("mail", param)
+RSET_501_RESP = b"501 5.5.4 Syntax: RSET\r\n"
 
+VRFY_RESP = b"502 5.5.1 VRFY command is disabled\r\n"
 
-def gen_rcpt_cmd(param=""):
-    """ 
-    param - string
-    returns bytes """
-    return gen_cmd("rcpt", param)
+DATA_503_RESP = b"503 5.5.1 Error: need RCPT command\r\n"
+DATA_554_RESP = b"554 5.5.1 Error: no valid recipients\r\n"
 
+RCPT_503_RESP = b"503 5.5.1 Error: need MAIL command\r\n"
+RCPT_554_RESP_PART1 = b"554 5.7.1 <unknown["
+RCPT_554_RESP_PART2 = b"]>: Client host rejected: Access denied\r\n"
+RCPT_501_RESP = b"501 5.5.4 Syntax: RCPT TO:<address>\r\n"
+RCPT_TO_STR = b"to:"
 
-def gen_data_cmd(param=""):
-    """ 
-    param - string
-    returns bytes """
-    return gen_cmd("data", param)
+MAIL_EXPECT_HELO_RESP = b"503 5.5.1 Error: send HELO/EHLO first\r\n"
+MAIL_HELO_MAIL_RESP = b"503 5.5.1 Error: nested MAIL command\r\n"
+MAIL_501_RESP = b"501 5.5.4 Syntax: MAIL FROM:<address>\r\n"
+MAIL_FROM_STR = b"from:"
 
+AUTH_HELO_MAIL_RESP = b"503 5.5.1 Error: MAIL transaction in progress\r\n"
+AUTH_EXPECT_HELO_RESP = b"503 5.5.1 Error: send HELO/EHLO first\r\n"
+AUTH_501_RESP = b"501 5.5.4 Syntax: AUTH mechanism\r\n"
+AUTH_INVLD_SASL_MECH = b"535 5.7.8 Error: authentication failed: Invalid authentication mechanism\r\n"
+AUTH_PLAIN_ASK_DATA_RESP = b"334 \r\n"
+AUTH_LOG_ASK_USER_RESP = b"334 VXNlcm5hbWU6\r\n"
+AUTH_INIT_RESP_ERROR = b"535 5.7.8 Error: authentication failed: Invalid base64 data in initial response\r\n"
+AUTH_PLAIN_INIT_RESP_RESP = b"535 5.7.8 Error: authentication failed:\r\n"
+AUTH_LOG_ASK_FOR_PASSW = b"334 UGFzc3dvcmQ6\r\n"
 
-def gen_vrfy_cmd(param=""):
-    """ 
-    param - string
-    returns bytes """
-    return gen_cmd("vrfy", param)
+PROC_DATA_EXPCT_LOG_USER_EMPTY_LINE = b"535 5.7.8 Error: authentication failed: VXNlcm5hbWU6\r\n"
+PROC_DATA_EXPCT_LOG_PASSW_EMPTY_LINE = b"535 5.7.8 Error: authentication failed: UGFzc3dvcmQ6\r\n"
+PROC_DATA_AUTH_ABOR = b"501 5.7.0 Authentication aborted\r\n"
 
-
-def gen_expn_cmd(param=""):
-    """ 
-    param - string
-    returns bytes """
-    return gen_cmd("expn", param)
-
-
-def gen_burl_cmd(param=""):
-    """ 
-    param - string
-    returns bytes """
-    return gen_cmd("burl", param)
-
-
-def gen_noop_cmd(param=""):
-    """ 
-    param - string
-    returns bytes """
-    return gen_cmd("noop", param)
-
-
-def gen_rset_cmd(param=""):
-    """ 
-    param - string
-    returns bytes """
-    return gen_cmd("rset", param)
-
-
-def gen_ehlo_cmd(param=""):
-    """ 
-    param - string
-    returns bytes """
-    return gen_cmd("ehlo", param)
-
-
-def gen_helo_cmd(param=""):
-    """ 
-    param - string
-    returns bytes """
-    return gen_cmd("helo", param)
-
-
-def gen_auth_cmd(param=""):
-    """ 
-    param - string
-    returns bytes """
-    return gen_cmd("auth", param)
-
-
-def gen_quit_cmd(param=""):
-    """ 
-    param - string
-    returns bytes """
-    return gen_cmd("quit", param)
-
-# proxy reports
+PROC_DATA_INVALID_B64 = b"535 5.7.8 Error: authentication failed: Invalid base64 data in continued response\r\n"
 
 def gen_connect_report(ip):
     """ Generates proxy report connect message.
-        ip - string 
+        ip - string
         returns dictionary """
-    return proxy.gen_connect_report(ip, "smtp")
-
-
-def gen_login_auth_report(ip, user="", passw=""):
-    """ Generates proxy report login authentication message.
-    ip - string
-    user - string
-    passw - string
-    returns dictionary """
-    data = {}
-    if user:
-        data["user"] = user
-    if passw:
-        data["passw"] = passw
-    return proxy.gen_proxy_report("smtp", "logauth", ip, data)
-
-
-def gen_plain_auth_report(ip, authzid="", authcid="", passw=""):
-    """ Generates proxy report plain authentication message.
-    ip - string
-    authzid - string
-    authcid - string
-    passw - string
-    returns dictionary
-    """
-    data = {}
-    if authzid:
-        data["authzid"] = authzid
-    if authcid:
-        data["authcid"] = authcid
-    if passw:
-        data["passw"] = passw
-    return proxy.gen_proxy_report("smtp", "plauth", ip, data)
-
-# handlers
-
-def help_cmd_handler1(server_sock):
-    """ sends help coomand with no params
-        returns list of proxy reports - list of dictionaries """
-    ip_addr = get_ip_addr(server_sock)
-    reports = [gen_connect_report(ip_addr),]
-    response = recv_from_sock(server_sock)
-    str_cmp(response, SMTP_220_WELCOME_REP)
-    cmd = gen_help_cmd()
-    send_to_sock(server_sock, cmd)
-    response = recv_from_sock(server_sock)
-    str_cmp(response, SMTP_530_570_REP)
-    return reports
-
-
-def help_cmd_handler2(server_sock):
-    """ sends help coomand with some random params
-        returns list of proxy reports - list of dictionaries """
-    ip_addr = get_ip_addr(server_sock)
-    reports = [gen_connect_report(ip_addr),]
-    response = recv_from_sock(server_sock)
-    str_cmp(response, SMTP_220_WELCOME_REP)
-    cmd = gen_help_cmd(gen_rand_printable_str(70))
-    send_to_sock(server_sock, cmd)
-    response = recv_from_sock(server_sock)
-    str_cmp(response, SMTP_530_570_REP)
-    return reports
-
-
-def mail_cmd_handler1(server_sock):
-    """ sends mail coomand with no params
-        returns list of proxy reports - list of dictionaries """
-    ip_addr = get_ip_addr(server_sock)
-    reports = [gen_connect_report(ip_addr),]
-    response = recv_from_sock(server_sock)
-    str_cmp(response, SMTP_220_WELCOME_REP)
-    cmd = gen_mail_cmd()
-    send_to_sock(server_sock, cmd)
-    response = recv_from_sock(server_sock)
-    str_cmp(response, SMTP_530_570_REP)
-    return reports
-
-
-def mail_cmd_handler2(server_sock):
-    """ sends mail coomand with some random params
-        returns list of proxy reports - list of dictionaries """
-    ip_addr = get_ip_addr(server_sock)
-    reports = [gen_connect_report(ip_addr),]
-    response = recv_from_sock(server_sock)
-    str_cmp(response, SMTP_220_WELCOME_REP)
-    cmd = gen_mail_cmd(gen_rand_printable_str(65))
-    send_to_sock(server_sock, cmd)
-    response = recv_from_sock(server_sock)
-    str_cmp(response, SMTP_530_570_REP)
-    return reports
-
-
-def rcpt_cmd_handler1(server_sock):
-    """ sends rcpt coomand with no params
-        returns list of proxy reports - list of dictionaries """
-    ip_addr = get_ip_addr(server_sock)
-    reports = [gen_connect_report(ip_addr),]
-    response = recv_from_sock(server_sock)
-    str_cmp(response, SMTP_220_WELCOME_REP)
-    cmd = gen_rcpt_cmd()
-    send_to_sock(server_sock, cmd)
-    response = recv_from_sock(server_sock)
-    str_cmp(response, SMTP_530_570_REP)
-    return reports
-
-
-def rcpt_cmd_handler2(server_sock):
-    """ sends rcpt coomand with some random params
-        returns list of proxy reports - list of dictionaries """
-    ip_addr = get_ip_addr(server_sock)
-    reports = [gen_connect_report(ip_addr),]
-    response = recv_from_sock(server_sock)
-    str_cmp(response, SMTP_220_WELCOME_REP)
-    cmd = gen_rcpt_cmd(gen_rand_printable_str(49))
-    send_to_sock(server_sock, cmd)
-    response = recv_from_sock(server_sock)
-    str_cmp(response, SMTP_530_570_REP)
-    return reports
-
-
-def data_cmd_handler1(server_sock):
-    """ sends data coomand with no params
-        returns list of proxy reports - list of dictionaries """
-    ip_addr = get_ip_addr(server_sock)
-    reports = [gen_connect_report(ip_addr),]
-    response = recv_from_sock(server_sock)
-    str_cmp(response, SMTP_220_WELCOME_REP)
-    cmd = gen_data_cmd()
-    send_to_sock(server_sock, cmd)
-    response = recv_from_sock(server_sock)
-    str_cmp(response, SMTP_530_570_REP)
-    return reports
-
-
-def data_cmd_handler2(server_sock):
-    """ sends data coomand with some random params
-        returns list of proxy reports - list of dictionaries """
-    ip_addr = get_ip_addr(server_sock)
-    reports = [gen_connect_report(ip_addr),]
-    response = recv_from_sock(server_sock)
-    str_cmp(response, SMTP_220_WELCOME_REP)
-    cmd = gen_data_cmd(gen_rand_printable_str(39))
-    send_to_sock(server_sock, cmd)
-    response = recv_from_sock(server_sock)
-    str_cmp(response, SMTP_530_570_REP)
-    return reports
-
-
-def vrfy_cmd_handler1(server_sock):
-    """ sends vrfy coomand with no params
-        returns list of proxy reports - list of dictionaries """
-    ip_addr = get_ip_addr(server_sock)
-    reports = [gen_connect_report(ip_addr),]
-    response = recv_from_sock(server_sock)
-    str_cmp(response, SMTP_220_WELCOME_REP)
-    cmd = gen_vrfy_cmd()
-    send_to_sock(server_sock, cmd)
-    response = recv_from_sock(server_sock)
-    str_cmp(response, SMTP_530_570_REP)
-    return reports
-
-
-def vrfy_cmd_handler2(server_sock):
-    """ sends vrfy coomand with some random params
-        returns list of proxy reports - list of dictionaries """
-    ip_addr = get_ip_addr(server_sock)
-    reports = [gen_connect_report(ip_addr),]
-    response = recv_from_sock(server_sock)
-    str_cmp(response, SMTP_220_WELCOME_REP)
-    cmd = gen_vrfy_cmd(gen_rand_printable_str(54))
-    send_to_sock(server_sock, cmd)
-    response = recv_from_sock(server_sock)
-    str_cmp(response, SMTP_530_570_REP)
-    return reports
-
-def expn_cmd_handler1(server_sock):
-    """ sends expn coomand with no params
-        returns list of proxy reports - list of dictionaries """
-    ip_addr = get_ip_addr(server_sock)
-    reports = [gen_connect_report(ip_addr),]
-    response = recv_from_sock(server_sock)
-    str_cmp(response, SMTP_220_WELCOME_REP)
-    cmd = gen_expn_cmd()
-    send_to_sock(server_sock, cmd)
-    response = recv_from_sock(server_sock)
-    str_cmp(response, SMTP_530_570_REP)
-    return reports
-
-
-def expn_cmd_handler2(server_sock):
-    """ sends expn coomand with some random params
-        returns list of proxy reports - list of dictionaries """
-    ip_addr = get_ip_addr(server_sock)
-    reports = [gen_connect_report(ip_addr),]
-    response = recv_from_sock(server_sock)
-    str_cmp(response, SMTP_220_WELCOME_REP)
-    cmd = gen_expn_cmd(gen_rand_printable_str(78))
-    send_to_sock(server_sock, cmd)
-    response = recv_from_sock(server_sock)
-    str_cmp(response, SMTP_530_570_REP)
-    return reports
-
-
-def burl_cmd_handler1(server_sock):
-    """ sends burl coomand with no params
-        returns list of proxy reports - list of dictionaries """
-    ip_addr = get_ip_addr(server_sock)
-    reports = [gen_connect_report(ip_addr),]
-    response = recv_from_sock(server_sock)
-    str_cmp(response, SMTP_220_WELCOME_REP)
-    cmd = gen_burl_cmd()
-    send_to_sock(server_sock, cmd)
-    response = recv_from_sock(server_sock)
-    str_cmp(response, SMTP_530_570_REP)
-    return reports
-
-
-def burl_cmd_handler2(server_sock):
-    """ sends burl coomand with some random params
-        returns list of proxy reports - list of dictionaries """
-    ip_addr = get_ip_addr(server_sock)
-    reports = [gen_connect_report(ip_addr),]
-    response = recv_from_sock(server_sock)
-    str_cmp(response, SMTP_220_WELCOME_REP)
-    cmd = gen_burl_cmd(gen_rand_printable_str(53))
-    send_to_sock(server_sock, cmd)
-    response = recv_from_sock(server_sock)
-    str_cmp(response, SMTP_530_570_REP)
-    return reports
-
-def noop_cmd_handler1(server_sock):
-    """ sends noop coomand with no params
-        returns list of proxy reports - list of dictionaries """
-    ip_addr = get_ip_addr(server_sock)
-    reports = [gen_connect_report(ip_addr),]
-    response = recv_from_sock(server_sock)
-    str_cmp(response, SMTP_220_WELCOME_REP)
-    cmd = gen_noop_cmd()
-    send_to_sock(server_sock, cmd)
-    response = recv_from_sock(server_sock)
-    str_cmp(response, SMTP_250_200_NOOP_REP)
-    return reports
-
-
-def noop_cmd_handler2(server_sock):
-    """ sends noop coomand with some random params
-        returns list of proxy reports - list of dictionaries """
-    ip_addr = get_ip_addr(server_sock)
-    reports = [gen_connect_report(ip_addr),]
-    response = recv_from_sock(server_sock)
-    str_cmp(response, SMTP_220_WELCOME_REP)
-    cmd = gen_noop_cmd(gen_rand_printable_str(42))
-    send_to_sock(server_sock, cmd)
-    response = recv_from_sock(server_sock)
-    str_cmp(response, SMTP_250_200_NOOP_REP)
-    return reports
-
-
-def rset_cmd_handler1(server_sock):
-    """ sends rset coomand with no params
-        returns list of proxy reports - list of dictionaries """
-    ip_addr = get_ip_addr(server_sock)
-    reports = [gen_connect_report(ip_addr),]
-    response = recv_from_sock(server_sock)
-    str_cmp(response, SMTP_220_WELCOME_REP)
-    cmd = gen_rset_cmd()
-    send_to_sock(server_sock, cmd)
-    response = recv_from_sock(server_sock)
-    str_cmp(response, SMTP_250_200_RSET_REP)
-    return reports
-
-
-def rset_cmd_handler2(server_sock):
-    """ sends rset coomand with some random params
-        returns list of proxy reports - list of dictionaries """
-    ip_addr = get_ip_addr(server_sock)
-    reports = [gen_connect_report(ip_addr),]
-    response = recv_from_sock(server_sock)
-    str_cmp(response, SMTP_220_WELCOME_REP)
-    cmd = gen_rset_cmd(gen_rand_printable_str(35))
-    send_to_sock(server_sock, cmd)
-    response = recv_from_sock(server_sock)
-    str_cmp(response, SMTP_250_200_RSET_REP)
-    return reports
-
-
-def helo_cmd_handler1(server_sock):
-    """ sends ehlo coomand with no params
-        returns list of proxy reports - list of dictionaries """
-    ip_addr = get_ip_addr(server_sock)
-    reports = [gen_connect_report(ip_addr),]
-    response = recv_from_sock(server_sock)
-    str_cmp(response, SMTP_220_WELCOME_REP)
-    cmd = gen_helo_cmd()
-    send_to_sock(server_sock, cmd)
-    response = recv_from_sock(server_sock)
-    str_cmp(response, SMTP_501_HELO_REP)
-    return reports
-
-
-def helo_cmd_handler2(server_sock):
-    """ sends helo coomand with some random params
-        returns list of proxy reports - list of dictionaries """
-    ip_addr = get_ip_addr(server_sock)
-    reports = [gen_connect_report(ip_addr),]
-    response = recv_from_sock(server_sock)
-    str_cmp(response, SMTP_220_WELCOME_REP)
-    cmd = gen_helo_cmd(gen_rand_printable_str(67))
-    send_to_sock(server_sock, cmd)
-    response = recv_from_sock(server_sock)
-    # TODO check for domain name
-    str_cmp(response, SMTP_250_HELO_REP)
-    return reports
-
-
-def ehlo_cmd_handler1(server_sock):
-    """ sends ehlo coomand with no params
-        returns list of proxy reports - list of dictionaries """
-    ip_addr = get_ip_addr(server_sock)
-    reports = [gen_connect_report(ip_addr),]
-    response = recv_from_sock(server_sock)
-    str_cmp(response, SMTP_220_WELCOME_REP)
-    cmd = gen_ehlo_cmd()
-    send_to_sock(server_sock, cmd)
-    response = recv_from_sock(server_sock)
-    print(response)
-    str_cmp(response, SMTP_501_HELO_REP)
-    return reports
-
-
-def ehlo_cmd_handler2(server_sock):
-    """ sends ehlo coomand with some random params
-        returns list of proxy reports - list of dictionaries """
-    ip_addr = get_ip_addr(server_sock)
-    reports = [gen_connect_report(ip_addr),]
-    response = recv_from_sock(server_sock)
-    str_cmp(response, SMTP_220_WELCOME_REP)
-    cmd = gen_ehlo_cmd(gen_rand_printable_str(32))
-    send_to_sock(server_sock, cmd)
-    response = recv_from_sock(server_sock)
-    # TODO check for domain name
-    str_cmp(response, SMTP_250_EHLO_REP)
-    return reports
-
-
-def quit_cmd_handler1(server_sock):
-    """ sends quit coomand with no params
-        returns list of proxy reports - list of dictionaries """
-    ip_addr = get_ip_addr(server_sock)
-    reports = [gen_connect_report(ip_addr),]
-    response = recv_from_sock(server_sock)
-    str_cmp(response, SMTP_220_WELCOME_REP)
-    cmd = gen_quit_cmd()
-    send_to_sock(server_sock, cmd)
-    response = recv_from_sock(server_sock)
-    str_cmp(response, SMTP_221_200_REP)
-    return reports
-
-
-def quit_cmd_handler2(server_sock):
-    """ sends quit coomand with some random params
-        returns list of proxy reports - list of dictionaries """
-    ip_addr = get_ip_addr(server_sock)
-    reports = [gen_connect_report(ip_addr),]
-    response = recv_from_sock(server_sock)
-    str_cmp(response, SMTP_220_WELCOME_REP)
-    cmd = gen_quit_cmd(gen_rand_printable_str(27))
-    send_to_sock(server_sock, cmd)
-    response = recv_from_sock(server_sock)
-    str_cmp(response, SMTP_221_200_REP)
-    return reports
-
-# authentication commands
-
-def auth_cmd_handler1(server_sock):
-    """ sends auth coomand with no other parameters
-        returns list of proxy reports - list of dictionaries """
-    ip_addr = get_ip_addr(server_sock)
-    reports = [gen_connect_report(ip_addr),]
-    response = recv_from_sock(server_sock)
-    str_cmp(response, SMTP_220_WELCOME_REP)
-    cmd = gen_auth_cmd()
-    send_to_sock(server_sock, cmd)
-    response = recv_from_sock(server_sock)
-    str_cmp(response, SMTP_504_576_REP)
-    return reports
-
-
-def auth_cmd_handler2(server_sock):
-    """ sends auth coomand with random garbage as parameter
-        returns list of proxy reports - list of dictionaries """
-    ip_addr = get_ip_addr(server_sock)
-    reports = [gen_connect_report(ip_addr),]
-    response = recv_from_sock(server_sock)
-    str_cmp(response, SMTP_220_WELCOME_REP)
-    cmd = gen_auth_cmd(gen_rand_printable_str(23))
-    send_to_sock(server_sock, cmd)
-    response = recv_from_sock(server_sock)
-    str_cmp(response, SMTP_504_576_REP)
-    return reports
-
-
-def auth_plain_handler1(server_sock):
-    """ sends auth plain
-        returns list of proxy reports - list of dictionaries """
-    ip_addr = get_ip_addr(server_sock)
-    reports = [gen_connect_report(ip_addr),]
-    response = recv_from_sock(server_sock)
-    str_cmp(response, SMTP_220_WELCOME_REP)
-    cmd = gen_auth_cmd("plain")
-    send_to_sock(server_sock, cmd)
-    response = recv_from_sock(server_sock)
-    str_cmp(response, SMTP_334_PL_REP)
-    return reports
-
-
-def auth_plain_handler2(server_sock):
-    """ sends auth plain appended with SPs
-        returns list of proxy reports - list of dictionaries """
-    ip_addr = get_ip_addr(server_sock)
-    reports = [gen_connect_report(ip_addr),]
-    response = recv_from_sock(server_sock)
-    str_cmp(response, SMTP_220_WELCOME_REP)
-    cmd = gen_auth_cmd("plain          ")
-    send_to_sock(server_sock, cmd)
-    response = recv_from_sock(server_sock)
-    str_cmp(response, SMTP_334_PL_REP)
-    return reports
-
-
-def auth_plain_handler3(server_sock):
-    """ sends auth plain with valid base 64 data and valid authentication data after decoding
-        returns list of proxy reports - list of dictionaries """
-    ip_addr = get_ip_addr(server_sock)
-    response = recv_from_sock(server_sock)
-    str_cmp(response, SMTP_220_WELCOME_REP)
-    authzid = gen_rand_printable_str(15)
-    authcid = gen_rand_printable_str(15)
-    passw = gen_rand_printable_str(15)
-    reports = [gen_connect_report(ip_addr),
-                gen_plain_auth_report(ip_addr, authzid, authcid, passw),]
-    param = "plain " + gen_plain_auth_data(authzid, authcid, passw)
-    cmd = gen_auth_cmd(param)
-    send_to_sock(server_sock, cmd)
-    response = recv_from_sock(server_sock)
-    str_cmp(response, SMTP_535_578_REP)
-    return reports
-
-
-def auth_plain_handler4(server_sock):
-    """ sends auth plain with valid base 64 data appended with whitespaces. Data after decoding are valid.
-        returns list of proxy reports - list of dictionaries """
-    ip_addr = get_ip_addr(server_sock)
-    response = recv_from_sock(server_sock)
-    str_cmp(response, SMTP_220_WELCOME_REP)
-    authzid = gen_rand_printable_str(15)
-    authcid = gen_rand_printable_str(15)
-    passw = gen_rand_printable_str(15)
-    reports = [gen_connect_report(ip_addr),
-                gen_plain_auth_report(ip_addr, authzid, authcid, passw),]
-    param = "plain " + gen_plain_auth_data(authzid, authcid, passw) + "       "
-    cmd = gen_auth_cmd(param)
-    send_to_sock(server_sock, cmd)
-    response = recv_from_sock(server_sock)
-    str_cmp(response, SMTP_535_578_REP)
-    return reports
-
-
-def auth_plain_handler5(server_sock):
-    """ sends auth plain with invalid base 64 data
-        returns list of proxy reports - list of dictionaries """
-    ip_addr = get_ip_addr(server_sock)
-    reports = [gen_connect_report(ip_addr),]
-    response = recv_from_sock(server_sock)
-    str_cmp(response, SMTP_220_WELCOME_REP)
-    cmd = gen_auth_cmd("plain ----------")
-    send_to_sock(server_sock, cmd)
-    response = recv_from_sock(server_sock)
-    str_cmp(response, SMTP_501_554_REP)
-    return reports
-
-
-def auth_login_handler1(server_sock):
-    """ sends auth login with invalid base 64 data
-        returns list of proxy reports - list of dictionaries """
-    ip_addr = get_ip_addr(server_sock)
-    reports = [gen_connect_report(ip_addr),]
-    response = recv_from_sock(server_sock)
-    str_cmp(response, SMTP_220_WELCOME_REP)
-    cmd = gen_auth_cmd("login ----------")
-    send_to_sock(server_sock, cmd)
-    response = recv_from_sock(server_sock)
-    str_cmp(response, SMTP_501_554_REP)
-    return reports
-
-
-def auth_login_handler2(server_sock):
-    """ sends auth login
-        returns list of proxy reports - list of dictionaries """
-    ip_addr = get_ip_addr(server_sock)
-    reports = [gen_connect_report(ip_addr),]
-    response = recv_from_sock(server_sock)
-    str_cmp(response, SMTP_220_WELCOME_REP)
-    cmd = gen_auth_cmd("login")
-    send_to_sock(server_sock, cmd)
-    response = recv_from_sock(server_sock)
-    str_cmp(response, SMTP_334_LOG_USER_REP)
-    return reports
-
-
-def auth_login_handler3(server_sock):
-    """ sends auth login with whitespaces
-        returns list of proxy reports - list of dictionaries """
-    ip_addr = get_ip_addr(server_sock)
-    reports = [gen_connect_report(ip_addr),]
-    response = recv_from_sock(server_sock)
-    str_cmp(response, SMTP_220_WELCOME_REP)
-    cmd = gen_auth_cmd("login           ")
-    send_to_sock(server_sock, cmd)
-    response = recv_from_sock(server_sock)
-    str_cmp(response, SMTP_334_LOG_USER_REP)
-    return reports
-
-
-def auth_login_handler4(server_sock):
-    """ sends auth login with valid base 64 data appended with whitespaces. Since data is just username. It is always avlid after successfull decoding.
-        returns list of proxy reports - list of dictionaries """
-    ip_addr = get_ip_addr(server_sock)
-    reports = [gen_connect_report(ip_addr),]
-    response = recv_from_sock(server_sock)
-    str_cmp(response, SMTP_220_WELCOME_REP)
-    username = gen_rand_printable_str(random.randint(15, 1000))
-    username_encoded = base64.standard_b64encode(username.encode()).decode() 
-    cmd = gen_auth_cmd("login " + username_encoded + "           ")
-    send_to_sock(server_sock, cmd)
-    response = recv_from_sock(server_sock)
-    str_cmp(response, SMTP_334_LOG_PASS_REP)
-    return reports
-
-
-def auth_login_handler5(server_sock):
-    """ sends auth login with valid base 64 data Since data is just username. It is always avlid after successfull decoding.
-        returns list of proxy reports - list of dictionaries """
-    ip_addr = get_ip_addr(server_sock)
-    reports = [gen_connect_report(ip_addr),]
-    response = recv_from_sock(server_sock)
-    str_cmp(response, SMTP_220_WELCOME_REP)
-    username = gen_rand_printable_str(random.randint(15, 1000))
-    username_encoded = base64.standard_b64encode(username.encode()).decode() 
-    cmd = gen_auth_cmd("login " + username_encoded)
-    send_to_sock(server_sock, cmd)
-    response = recv_from_sock(server_sock)
-    str_cmp(response, SMTP_334_LOG_PASS_REP)
-    return reports
-
-
-
-def auth_login_handler6(server_sock):
-    """ sends auth login with valid base 64 data and password
-        returns list of proxy reports - list of dictionaries """
-    ip_addr = get_ip_addr(server_sock)
-    reports = [gen_connect_report(ip_addr),]
-    response = recv_from_sock(server_sock)
-    str_cmp(response, SMTP_220_WELCOME_REP)
-    username = gen_rand_printable_str(random.randint(15, 1000))
-    username_encoded = base64.standard_b64encode(username.encode()).decode() 
-    cmd = gen_auth_cmd("login " + username_encoded)
-    send_to_sock(server_sock, cmd)
-    response = recv_from_sock(server_sock)
-    str_cmp(response, SMTP_334_LOG_PASS_REP)
-    password = gen_rand_printable_str(random.randint(5, 2000))
-    password_encoded = base64.standard_b64encode(password.encode()) + b"\r\n"
-    send_to_sock(server_sock, password_encoded)
-    response = recv_from_sock(server_sock)
-    str_cmp(response, SMTP_535_578_REP)
-    reports.append(gen_login_auth_report(ip_addr, username, password))
-    return reports
-
-
-def auth_login_handler7(server_sock):
-    """ sends auth login command, encoded username and password
-        returns list of proxy reports - list of dictionaries """
-    ip_addr = get_ip_addr(server_sock)
-    reports = [gen_connect_report(ip_addr),]
-    response = recv_from_sock(server_sock)
-    str_cmp(response, SMTP_220_WELCOME_REP)
-    cmd = gen_auth_cmd("login")
-    send_to_sock(server_sock, cmd)
-    response = recv_from_sock(server_sock)
-    str_cmp(response, SMTP_334_LOG_USER_REP)
-    username = gen_rand_printable_str(random.randint(15, 1000))
-    username_encoded = base64.standard_b64encode(username.encode()) + b"\r\n" 
-    send_to_sock(server_sock, username_encoded)
-    response = recv_from_sock(server_sock)
-    str_cmp(response, SMTP_334_LOG_PASS_REP)
-    password = gen_rand_printable_str(random.randint(5, 2000))
-    password_encoded = base64.standard_b64encode(password.encode()) + b"\r\n"
-    send_to_sock(server_sock, password_encoded)
-    response = recv_from_sock(server_sock)
-    str_cmp(response, SMTP_535_578_REP)
-    reports.append(gen_login_auth_report(ip_addr, username, password))
-    return reports
-
-
-def plain_ir_brute_force_handler(server_sock):
+    return gen_proxy_report(TYPE, CONNECT_EV, ip, None)
+
+
+def gen_login_report(ip, user=b"", password=b""):
+    """ Generates proxy report login message.
+        ip - string
+        user -  bytes
+        password - bytes
+        returns dictionary"""
+    data = {
+        LOGIN_USER: user,
+        LOGIN_PASS: password,
+    }
+    return gen_proxy_report(TYPE, LOGIN_EV, ip, data)
+
+
+def gen_plain_report(ip, pl_data=b""):
+    """ Generates proxy report login message.
+        ip - string
+        pl_data - bytes
+        returns dictionary"""
+    data = {
+        PLAIN_DATA: pl_data,
+    }
+    return gen_proxy_report(TYPE, PLAIN_EV, ip, data)
+
+
+def empty_cmd_test1(server_sock):
     ip_addr = get_ip_addr(server_sock)
     reports = [gen_connect_report(ip_addr)]
     response = recv_from_sock(server_sock)
-    str_cmp(response, SMTP_220_WELCOME_REP)
-    while True:
-        authzid = gen_rand_printable_str(15)
-        authcid = gen_rand_printable_str(15)
-        passw = gen_rand_printable_str(15)
-        param = "plain " + gen_plain_auth_data(authzid, authcid, passw)
-        cmd = gen_auth_cmd(param) 
-        reports.append(gen_plain_auth_report(ip_addr, authzid, authcid, passw))
-        send_to_sock(server_sock, cmd)
-        response = recv_from_sock(server_sock)
-        if (response == SMTP_535_578_REP):
-            continue
-        elif (response == SMTP_421_REP):
-            break
-        else:
-            raise Exception("wrong flow")
+    assert response[0:3] == WELCOME_RESP
+    # bytelist = list(range(256))
+    # bytelist.remove(FTP_CMD_SEP)
+    # user = gen_rand_bytes(bytelist, 4090)
+    # cmd = b"".join([b"user ", user, b"\n"])
+    cmd = b"\n"
+    server_sock.sendall(cmd)
+    response = recv_from_sock(server_sock)
+    #
+    assert response == EMPTY_LINE_RESP
     return reports
 
 
-
-def plain_brute_force_handler(server_sock):
+def empty_cmd_test2(server_sock):
     ip_addr = get_ip_addr(server_sock)
     reports = [gen_connect_report(ip_addr)]
     response = recv_from_sock(server_sock)
-    str_cmp(response, SMTP_220_WELCOME_REP)
-    while True:       
-        cmd = gen_auth_cmd("plain")
-        send_to_sock(server_sock, cmd)
-        response = recv_from_sock(server_sock)
-        str_cmp(response, SMTP_334_PL_REP)
-        authzid = gen_rand_printable_str(15)
-        authcid = gen_rand_printable_str(15)
-        passw = gen_rand_printable_str(15)
-        cmd =  gen_plain_auth_data(authzid, authcid, passw).encode() + b"\r\n"
-        send_to_sock(server_sock, cmd)
-        reports.append(gen_plain_auth_report(ip_addr, authzid, authcid, passw))
-        response = recv_from_sock(server_sock)
-        if (response == SMTP_535_578_REP):
-            continue
-        elif (response == SMTP_421_REP):
-            break
-        else:
-            raise Exception("wrong flow")
+    assert response[0:3] == WELCOME_RESP
+    bytelist = TOKEN_SEPARATORS
+    # bytelist.remove(FTP_CMD_SEP)
+    rnd_bts = gen_rand_bytes(bytelist, TOKEN_BUFF_LEN - 1)
+    cmd = b"".join([rnd_bts, b"\n"])
+    # cmd = b"\n"
+    server_sock.sendall(cmd)
+    response = recv_from_sock(server_sock)
+    #
+    assert response == EMPTY_LINE_RESP
     return reports
 
 
-def login_ir_bruteforce_handler(server_sock):
-    """ auth login with initial response brute force attack
-        returns list of proxy reports - list of dictionaries """
+def empty_cmd_test3(server_sock):
     ip_addr = get_ip_addr(server_sock)
-    reports = [gen_connect_report(ip_addr),]
+    reports = [gen_connect_report(ip_addr)]
     response = recv_from_sock(server_sock)
-    str_cmp(response, SMTP_220_WELCOME_REP)
-    while True:
-        username = gen_rand_printable_str(random.randint(15, 1000))
-        username_encoded = base64.standard_b64encode(username.encode()).decode() 
-        cmd = gen_auth_cmd("login " + username_encoded)
-        send_to_sock(server_sock, cmd)
-        response = recv_from_sock(server_sock)
-        str_cmp(response, SMTP_334_LOG_PASS_REP)
-        password = gen_rand_printable_str(random.randint(5, 2000))
-        password_encoded = base64.standard_b64encode(password.encode()) + b"\r\n"
-        reports.append(gen_login_auth_report(ip_addr, username, password))
-        send_to_sock(server_sock, password_encoded)
-        response = recv_from_sock(server_sock)
-        if (response == SMTP_535_578_REP):
-            continue
-        elif (response == SMTP_421_REP):
-            break
-        else:
-            raise Exception("wrong flow")
+    assert response[0:3] == WELCOME_RESP
+    bytelist = TOKEN_SEPARATORS
+    # bytelist.remove(FTP_CMD_SEP)
+    rnd_bts = gen_rand_bytes(bytelist, 1)
+    cmd = b"".join([rnd_bts, b"\n"])
+    # cmd = b"\n"
+    server_sock.sendall(cmd)
+    response = recv_from_sock(server_sock)
+    #
+    assert response == EMPTY_LINE_RESP
     return reports
 
 
-def login_bruteforce_handler(server_sock):
-    """ sends auth login command, encoded username and password
-        returns list of proxy reports - list of dictionaries """
+def unrec_cmd_test1(server_sock):
     ip_addr = get_ip_addr(server_sock)
-    reports = [gen_connect_report(ip_addr),]
+    reports = [gen_connect_report(ip_addr)]
     response = recv_from_sock(server_sock)
-    str_cmp(response, SMTP_220_WELCOME_REP)
-    while True:
-        cmd = gen_auth_cmd("login")
-        send_to_sock(server_sock, cmd)
+    assert response[0:3] == WELCOME_RESP
+    bytelist = list(range(256))
+    for _ in TOKEN_SEPARATORS:
+        bytelist.remove(_)
+    # bytelist.remove(TOKEN_SEPARATORS)
+    bytelist.remove(10)
+    rnd_bts = gen_rand_bytes(bytelist, 1)
+    cmd = b"".join([rnd_bts, b"\n"])
+    # cmd = b"\n"
+    server_sock.sendall(cmd)
+    response = recv_from_sock(server_sock)
+
+    assert response == UNKNOWN_CMD_RESP
+    return reports
+
+
+def unrec_cmd_test2(server_sock):
+    ip_addr = get_ip_addr(server_sock)
+    reports = [gen_connect_report(ip_addr)]
+    response = recv_from_sock(server_sock)
+    assert response[0:3] == WELCOME_RESP
+    bytelist = list(range(256))
+    for _ in TOKEN_SEPARATORS:
+        bytelist.remove(_)
+    # bytelist.remove(TOKEN_SEPARATORS)
+    bytelist.remove(10)
+    rnd_bts = gen_rand_bytes(bytelist, TOKEN_BUFF_LEN - 1)
+    cmd = b"".join([rnd_bts, b"\n"])
+    # cmd = b"\n"
+    server_sock.sendall(cmd)
+    response = recv_from_sock(server_sock)
+    #
+    assert response == UNKNOWN_CMD_RESP
+    return reports
+
+
+def noop_cmd_expect_helo_test1(server_sock):
+    ip_addr = get_ip_addr(server_sock)
+    reports = [gen_connect_report(ip_addr)]
+    response = recv_from_sock(server_sock)
+    assert response[0:3] == WELCOME_RESP
+    # bytelist = list(range(256))
+    # bytelist.remove(FTP_CMD_SEP)
+    # user = gen_rand_bytes(bytelist, 4090)
+    cmd = b"".join([b"noop", b"\n"])
+    # cmd = b"\n"
+    server_sock.sendall(cmd)
+    response = recv_from_sock(server_sock)
+    #
+    assert response == OK_RESP
+    return reports
+
+
+def noop_cmd_expect_helo_test2(server_sock):
+    ip_addr = get_ip_addr(server_sock)
+    reports = [gen_connect_report(ip_addr)]
+    response = recv_from_sock(server_sock)
+    assert response[0:3] == WELCOME_RESP
+    # bytelist = list(range(256))
+    # bytelist.remove(FTP_CMD_SEP)
+    # user = gen_rand_bytes(bytelist, 4090)
+    cmd = b"".join([gen_rand_bytes(TOKEN_SEPARATORS, 5),b"noop",gen_rand_bytes(TOKEN_SEPARATORS, 5), b"\n"])
+    # cmd = b"\n"
+    server_sock.sendall(cmd)
+    response = recv_from_sock(server_sock)
+    #
+    assert response == OK_RESP
+    return reports
+
+
+def noop_cmd_expect_helo_test3(server_sock):
+    ip_addr = get_ip_addr(server_sock)
+    reports = [gen_connect_report(ip_addr)]
+    response = recv_from_sock(server_sock)
+    assert response[0:3] == WELCOME_RESP
+    bytelist = list(range(256))
+    bytelist.remove(10)
+    # bytelist.remove(FTP_CMD_SEP)
+    # user = gen_rand_bytes(bytelist, 4090)
+    cmd = b"".join([gen_rand_bytes(TOKEN_SEPARATORS, 5),b"noop",gen_rand_bytes(TOKEN_SEPARATORS, 5), gen_rand_bytes(bytelist, 1),b"\n"])
+    # cmd = b"\n"
+    server_sock.sendall(cmd)
+    response = recv_from_sock(server_sock)
+    #
+    assert response == OK_RESP
+    return reports
+
+def noop_cmd_expect_helo_test4(server_sock):
+    ip_addr = get_ip_addr(server_sock)
+    reports = [gen_connect_report(ip_addr)]
+    response = recv_from_sock(server_sock)
+    assert response[0:3] == WELCOME_RESP
+    bytelist = list(range(256))
+    bytelist.remove(10)
+    # bytelist.remove(FTP_CMD_SEP)
+    # user = gen_rand_bytes(bytelist, 4090)
+    cmd = b"".join([gen_rand_bytes(TOKEN_SEPARATORS, 5),b"noop",gen_rand_bytes(TOKEN_SEPARATORS, 5), gen_rand_bytes(bytelist, 5000),b"\n"])
+    # cmd = b"\n"
+    server_sock.sendall(cmd)
+    response = recv_from_sock(server_sock)
+
+    assert response == OK_RESP
+    return reports
+
+
+def rset_cmd_expect_helo_test1(server_sock):
+    ip_addr = get_ip_addr(server_sock)
+    reports = [gen_connect_report(ip_addr)]
+    response = recv_from_sock(server_sock)
+    assert response[0:3] == WELCOME_RESP
+    # bytelist = list(range(256))
+    # bytelist.remove(FTP_CMD_SEP)
+    # user = gen_rand_bytes(bytelist, 4090)
+    cmd = b"".join([b"rset", b"\n"])
+    # cmd = b"\n"
+    server_sock.sendall(cmd)
+    response = recv_from_sock(server_sock)
+
+    assert response == OK_RESP
+    return reports
+
+
+def rset_cmd_expect_helo_test2(server_sock):
+    ip_addr = get_ip_addr(server_sock)
+    reports = [gen_connect_report(ip_addr)]
+    response = recv_from_sock(server_sock)
+    assert response[0:3] == WELCOME_RESP
+    # bytelist = list(range(256))
+    # bytelist.remove(FTP_CMD_SEP)
+    # user = gen_rand_bytes(bytelist, 4090)
+    cmd = b"".join([gen_rand_bytes(TOKEN_SEPARATORS, 5),b"rset",gen_rand_bytes(TOKEN_SEPARATORS, 5), b"\n"])
+    # cmd = b"\n"
+    server_sock.sendall(cmd)
+    response = recv_from_sock(server_sock)
+
+    assert response == OK_RESP
+    return reports
+
+
+def rset_cmd_expect_helo_test3(server_sock):
+    ip_addr = get_ip_addr(server_sock)
+    reports = [gen_connect_report(ip_addr)]
+    response = recv_from_sock(server_sock)
+    assert response[0:3] == WELCOME_RESP
+    bytelist = list(range(256))
+    for _ in TOKEN_SEPARATORS:
+        bytelist.remove(_)
+    bytelist.remove(10)
+    # bytelist.remove(FTP_CMD_SEP)
+    # user = gen_rand_bytes(bytelist, 4090)
+    # cmd = b"".join([gen_rand_bytes(TOKEN_SEPARATORS, 5),b"rset",gen_rand_bytes(TOKEN_SEPARATORS, 5), gen_rand_bytes(bytelist, 1),b"\n"])
+    cmd = b"".join([gen_rand_bytes(TOKEN_SEPARATORS, 1),b"rset",gen_rand_bytes(TOKEN_SEPARATORS, 1), b"A",b"\n"])
+    # cmd = b"\n"
+
+    server_sock.sendall(cmd)
+    response = recv_from_sock(server_sock)
+
+    assert response == RSET_501_RESP
+    return reports
+
+
+def rset_cmd_expect_helo_test4(server_sock):
+    ip_addr = get_ip_addr(server_sock)
+    reports = [gen_connect_report(ip_addr)]
+    response = recv_from_sock(server_sock)
+    assert response[0:3] == WELCOME_RESP
+    bytelist = list(range(256))
+    for _ in TOKEN_SEPARATORS:
+        bytelist.remove(_)
+    bytelist.remove(10)
+    # bytelist.remove(FTP_CMD_SEP)
+    # user = gen_rand_bytes(bytelist, 4090)
+    cmd = b"".join([gen_rand_bytes(TOKEN_SEPARATORS, 5),b"rset",gen_rand_bytes(TOKEN_SEPARATORS, 5), gen_rand_bytes(bytelist, 5000),b"\n"])
+    # cmd = b"\n"
+    #
+    server_sock.sendall(cmd)
+    response = recv_from_sock(server_sock)
+
+    assert response == RSET_501_RESP
+    return reports
+
+
+def quit_cmd_expect_helo_test1(server_sock):
+    ip_addr = get_ip_addr(server_sock)
+    reports = [gen_connect_report(ip_addr)]
+    response = recv_from_sock(server_sock)
+    assert response[0:3] == WELCOME_RESP
+    # bytelist = list(range(256))
+    # bytelist.remove(FTP_CMD_SEP)
+    # user = gen_rand_bytes(bytelist, 4090)
+    cmd = b"".join([b"quit", b"\n"])
+    # cmd = b"\n"
+    server_sock.sendall(cmd)
+    response = recv_from_sock(server_sock)
+
+    assert response == QUIT_RESP
+    return reports
+
+
+def quit_cmd_expect_helo_test2(server_sock):
+    ip_addr = get_ip_addr(server_sock)
+    reports = [gen_connect_report(ip_addr)]
+    response = recv_from_sock(server_sock)
+    assert response[0:3] == WELCOME_RESP
+    # bytelist = list(range(256))
+    # bytelist.remove(FTP_CMD_SEP)
+    # user = gen_rand_bytes(bytelist, 4090)
+    cmd = b"".join([gen_rand_bytes(TOKEN_SEPARATORS, 5),b"quit",gen_rand_bytes(TOKEN_SEPARATORS, 5), b"\n"])
+    # cmd = b"\n"
+    server_sock.sendall(cmd)
+    response = recv_from_sock(server_sock)
+
+    assert response == QUIT_RESP
+    return reports
+
+
+def quit_cmd_expect_helo_test3(server_sock):
+    ip_addr = get_ip_addr(server_sock)
+    reports = [gen_connect_report(ip_addr)]
+    response = recv_from_sock(server_sock)
+    assert response[0:3] == WELCOME_RESP
+    bytelist = list(range(256))
+    for _ in TOKEN_SEPARATORS:
+        bytelist.remove(_)
+    bytelist.remove(10)
+    # bytelist.remove(FTP_CMD_SEP)
+    # user = gen_rand_bytes(bytelist, 4090)
+    # cmd = b"".join([gen_rand_bytes(TOKEN_SEPARATORS, 5),b"rset",gen_rand_bytes(TOKEN_SEPARATORS, 5), gen_rand_bytes(bytelist, 1),b"\n"])
+    cmd = b"".join([gen_rand_bytes(TOKEN_SEPARATORS, 1),b"quit",gen_rand_bytes(TOKEN_SEPARATORS, 1), b"A",b"\n"])
+    # cmd = b"\n"
+
+    server_sock.sendall(cmd)
+    response = recv_from_sock(server_sock)
+
+    assert response == QUIT_RESP
+    return reports
+
+
+def quit_cmd_expect_helo_test4(server_sock):
+    ip_addr = get_ip_addr(server_sock)
+    reports = [gen_connect_report(ip_addr)]
+    response = recv_from_sock(server_sock)
+    assert response[0:3] == WELCOME_RESP
+    bytelist = list(range(256))
+    for _ in TOKEN_SEPARATORS:
+        bytelist.remove(_)
+    bytelist.remove(10)
+    # bytelist.remove(FTP_CMD_SEP)
+    # user = gen_rand_bytes(bytelist, 4090)
+    cmd = b"".join([gen_rand_bytes(TOKEN_SEPARATORS, 5),b"quit",gen_rand_bytes(TOKEN_SEPARATORS, 5), gen_rand_bytes(bytelist, 5000),b"\n"])
+    # cmd = b"\n"
+    #
+    server_sock.sendall(cmd)
+    response = recv_from_sock(server_sock)
+
+    assert response == QUIT_RESP
+    return reports
+
+
+
+def mail_cmd_ecpect_helo_test1(server_sock):
+    ip_addr = get_ip_addr(server_sock)
+    reports = [gen_connect_report(ip_addr)]
+    response = recv_from_sock(server_sock)
+    assert response[0:3] == WELCOME_RESP
+    # bytelist = list(range(256))
+    # bytelist.remove(FTP_CMD_SEP)
+    # user = gen_rand_bytes(bytelist, 4090)
+    cmd = b"".join([b"mail", b"\n"])
+    # cmd = b"\n"
+    server_sock.sendall(cmd)
+    response = recv_from_sock(server_sock)
+    #
+    assert response == MAIL_EXPECT_HELO_RESP
+    return reports
+
+
+def mail_cmd_expect_helo_test2(server_sock):
+    ip_addr = get_ip_addr(server_sock)
+    reports = [gen_connect_report(ip_addr)]
+    response = recv_from_sock(server_sock)
+    assert response[0:3] == WELCOME_RESP
+    # bytelist = list(range(256))
+    # bytelist.remove(FTP_CMD_SEP)
+    # user = gen_rand_bytes(bytelist, 4090)
+    cmd = b"".join([gen_rand_bytes(TOKEN_SEPARATORS, 5),b"mail",gen_rand_bytes(TOKEN_SEPARATORS, 5), b"\n"])
+    # cmd = b"\n"
+    server_sock.sendall(cmd)
+    response = recv_from_sock(server_sock)
+    #
+    assert response == MAIL_EXPECT_HELO_RESP
+    return reports
+
+
+def mail_cmd_expect_helo_test3(server_sock):
+    ip_addr = get_ip_addr(server_sock)
+    reports = [gen_connect_report(ip_addr)]
+    response = recv_from_sock(server_sock)
+    assert response[0:3] == WELCOME_RESP
+    bytelist = list(range(256))
+    for _ in TOKEN_SEPARATORS:
+        bytelist.remove(_)
+    bytelist.remove(10)
+    # bytelist.remove(FTP_CMD_SEP)
+    # user = gen_rand_bytes(bytelist, 4090)
+    cmd = b"".join([gen_rand_bytes(TOKEN_SEPARATORS, 5),b"mail",gen_rand_bytes(TOKEN_SEPARATORS, 5), gen_rand_bytes(bytelist, 1),b"\n"])
+    # cmd = b"\n"
+    #
+    server_sock.sendall(cmd)
+    response = recv_from_sock(server_sock)
+    #
+    assert response == MAIL_EXPECT_HELO_RESP
+    return reports
+
+
+def mail_cmd_expect_helo_test4(server_sock):
+    ip_addr = get_ip_addr(server_sock)
+    reports = [gen_connect_report(ip_addr)]
+    response = recv_from_sock(server_sock)
+    assert response[0:3] == WELCOME_RESP
+    bytelist = list(range(256))
+    for _ in TOKEN_SEPARATORS:
+        bytelist.remove(_)
+    bytelist.remove(10)
+    # bytelist.remove(FTP_CMD_SEP)
+    # user = gen_rand_bytes(bytelist, 4090)
+    cmd = b"".join([gen_rand_bytes(TOKEN_SEPARATORS, 5),b"mail",gen_rand_bytes(TOKEN_SEPARATORS, 5), gen_rand_bytes(bytelist, 5000),b"\n"])
+    # cmd = b"\n"
+    #
+    server_sock.sendall(cmd)
+    response = recv_from_sock(server_sock)
+    #
+    assert response == MAIL_EXPECT_HELO_RESP
+    return reports
+
+
+
+def auth_cmd_ecpect_helo_test1(server_sock):
+    ip_addr = get_ip_addr(server_sock)
+    reports = [gen_connect_report(ip_addr)]
+    response = recv_from_sock(server_sock)
+    assert response[0:3] == WELCOME_RESP
+    # bytelist = list(range(256))
+    # bytelist.remove(FTP_CMD_SEP)
+    # user = gen_rand_bytes(bytelist, 4090)
+    cmd = b"".join([b"auth", b"\n"])
+    # cmd = b"\n"
+    server_sock.sendall(cmd)
+    response = recv_from_sock(server_sock)
+    #
+    assert response == AUTH_EXPECT_HELO_RESP
+    return reports
+
+
+def auth_cmd_expect_helo_test2(server_sock):
+    ip_addr = get_ip_addr(server_sock)
+    reports = [gen_connect_report(ip_addr)]
+    response = recv_from_sock(server_sock)
+    assert response[0:3] == WELCOME_RESP
+    # bytelist = list(range(256))
+    # bytelist.remove(FTP_CMD_SEP)
+    # user = gen_rand_bytes(bytelist, 4090)
+    cmd = b"".join([gen_rand_bytes(TOKEN_SEPARATORS, 5),b"auth",gen_rand_bytes(TOKEN_SEPARATORS, 5), b"\n"])
+    # cmd = b"\n"
+    server_sock.sendall(cmd)
+    response = recv_from_sock(server_sock)
+    #
+    assert response == AUTH_EXPECT_HELO_RESP
+    return reports
+
+
+def auth_cmd_expect_helo_test3(server_sock):
+    ip_addr = get_ip_addr(server_sock)
+    reports = [gen_connect_report(ip_addr)]
+    response = recv_from_sock(server_sock)
+    assert response[0:3] == WELCOME_RESP
+    bytelist = list(range(256))
+    # for _ in TOKEN_SEPARATORS:
+    #     bytelist.remove(_)
+    bytelist.remove(10)
+    # bytelist.remove(FTP_CMD_SEP)
+    # user = gen_rand_bytes(bytelist, 4090)
+    cmd = b"".join([gen_rand_bytes(TOKEN_SEPARATORS, 5),b"auth",gen_rand_bytes(TOKEN_SEPARATORS, 5), gen_rand_bytes(bytelist, 1),b"\n"])
+    # cmd = b"\n"
+    #
+    server_sock.sendall(cmd)
+    response = recv_from_sock(server_sock)
+    #
+    assert response == AUTH_EXPECT_HELO_RESP
+    return reports
+
+
+def auth_cmd_expect_helo_test4(server_sock):
+    ip_addr = get_ip_addr(server_sock)
+    reports = [gen_connect_report(ip_addr)]
+    response = recv_from_sock(server_sock)
+    assert response[0:3] == WELCOME_RESP
+    bytelist = list(range(256))
+    # for _ in TOKEN_SEPARATORS:
+    #     bytelist.remove(_)
+    bytelist.remove(10)
+    # bytelist.remove(FTP_CMD_SEP)
+    # user = gen_rand_bytes(bytelist, 4090)
+    cmd = b"".join([gen_rand_bytes(TOKEN_SEPARATORS, 5),b"auth",gen_rand_bytes(TOKEN_SEPARATORS, 5), gen_rand_bytes(bytelist, 5000),b"\n"])
+    # cmd = b"\n"
+    #
+    server_sock.sendall(cmd)
+    response = recv_from_sock(server_sock)
+    #
+    assert response == AUTH_EXPECT_HELO_RESP
+    return reports
+
+
+
+def etrn_cmd_ecpect_helo_test1(server_sock):
+    ip_addr = get_ip_addr(server_sock)
+    reports = [gen_connect_report(ip_addr)]
+    response = recv_from_sock(server_sock)
+    assert response[0:3] == WELCOME_RESP
+    # bytelist = list(range(256))
+    # bytelist.remove(FTP_CMD_SEP)
+    # user = gen_rand_bytes(bytelist, 4090)
+    cmd = b"".join([b"etrn", b"\n"])
+    # cmd = b"\n"
+    server_sock.sendall(cmd)
+    response = recv_from_sock(server_sock)
+    #
+    assert response == ETRN_EXPECT_HELO_RESP
+    return reports
+
+
+def etrn_cmd_expect_helo_test2(server_sock):
+    ip_addr = get_ip_addr(server_sock)
+    reports = [gen_connect_report(ip_addr)]
+    response = recv_from_sock(server_sock)
+    assert response[0:3] == WELCOME_RESP
+    # bytelist = list(range(256))
+    # bytelist.remove(FTP_CMD_SEP)
+    # user = gen_rand_bytes(bytelist, 4090)
+    cmd = b"".join([gen_rand_bytes(TOKEN_SEPARATORS, 5),b"etrn",gen_rand_bytes(TOKEN_SEPARATORS, 5), b"\n"])
+    # cmd = b"\n"
+    server_sock.sendall(cmd)
+    response = recv_from_sock(server_sock)
+    #
+    assert response == ETRN_EXPECT_HELO_RESP
+    return reports
+
+
+def etrn_cmd_expect_helo_test3(server_sock):
+    ip_addr = get_ip_addr(server_sock)
+    reports = [gen_connect_report(ip_addr)]
+    response = recv_from_sock(server_sock)
+    assert response[0:3] == WELCOME_RESP
+    bytelist = list(range(256))
+    # for _ in TOKEN_SEPARATORS:
+    #     bytelist.remove(_)
+    bytelist.remove(10)
+    # # bytelist.remove(FTP_CMD_SEP)
+    # user = gen_rand_bytes(bytelist, 4090)
+    cmd = b"".join([gen_rand_bytes(TOKEN_SEPARATORS, 5),b"etrn",gen_rand_bytes(TOKEN_SEPARATORS, 5), gen_rand_bytes(bytelist, 1),b"\n"])
+    # cmd = b"\n"
+    #
+    server_sock.sendall(cmd)
+    response = recv_from_sock(server_sock)
+    #
+    assert response == ETRN_EXPECT_HELO_RESP
+    return reports
+
+
+def etrn_cmd_expect_helo_test4(server_sock):
+    ip_addr = get_ip_addr(server_sock)
+    reports = [gen_connect_report(ip_addr)]
+    response = recv_from_sock(server_sock)
+    assert response[0:3] == WELCOME_RESP
+    bytelist = list(range(256))
+    # for _ in TOKEN_SEPARATORS:
+    #     bytelist.remove(_)
+    bytelist.remove(10)
+    # bytelist.remove(FTP_CMD_SEP)
+    # user = gen_rand_bytes(bytelist, 4090)
+    cmd = b"".join([gen_rand_bytes(TOKEN_SEPARATORS, 5),b"etrn",gen_rand_bytes(TOKEN_SEPARATORS, 5), gen_rand_bytes(bytelist, 5000),b"\n"])
+    # cmd = b"\n"
+    #
+    server_sock.sendall(cmd)
+    response = recv_from_sock(server_sock)
+    #
+    assert response == ETRN_EXPECT_HELO_RESP
+    return reports
+
+
+def rcpt_cmd_ecpect_helo_test1(server_sock):
+    ip_addr = get_ip_addr(server_sock)
+    reports = [gen_connect_report(ip_addr)]
+    response = recv_from_sock(server_sock)
+    assert response[0:3] == WELCOME_RESP
+    # bytelist = list(range(256))
+    # bytelist.remove(FTP_CMD_SEP)
+    # user = gen_rand_bytes(bytelist, 4090)
+    cmd = b"".join([b"rcpt", b"\n"])
+    # cmd = b"\n"
+    server_sock.sendall(cmd)
+    response = recv_from_sock(server_sock)
+    #
+    assert response == RCPT_503_RESP
+    return reports
+
+
+def rcpt_cmd_expect_helo_test2(server_sock):
+    ip_addr = get_ip_addr(server_sock)
+    reports = [gen_connect_report(ip_addr)]
+    response = recv_from_sock(server_sock)
+    assert response[0:3] == WELCOME_RESP
+    # bytelist = list(range(256))
+    # bytelist.remove(FTP_CMD_SEP)
+    # user = gen_rand_bytes(bytelist, 4090)
+    cmd = b"".join([gen_rand_bytes(TOKEN_SEPARATORS, 5),b"rcpt",gen_rand_bytes(TOKEN_SEPARATORS, 5), b"\n"])
+    # cmd = b"\n"
+    server_sock.sendall(cmd)
+    response = recv_from_sock(server_sock)
+    #
+    assert response == RCPT_503_RESP
+    return reports
+
+
+def rcpt_cmd_expect_helo_test3(server_sock):
+    ip_addr = get_ip_addr(server_sock)
+    reports = [gen_connect_report(ip_addr)]
+    response = recv_from_sock(server_sock)
+    assert response[0:3] == WELCOME_RESP
+    bytelist = list(range(256))
+    # for _ in TOKEN_SEPARATORS:
+    #     bytelist.remove(_)
+    bytelist.remove(10)
+    # bytelist.remove(FTP_CMD_SEP)
+    # user = gen_rand_bytes(bytelist, 4090)
+    cmd = b"".join([gen_rand_bytes(TOKEN_SEPARATORS, 5),b"rcpt",gen_rand_bytes(TOKEN_SEPARATORS, 5), gen_rand_bytes(bytelist, 1),b"\n"])
+    # cmd = b"\n"
+    #
+    server_sock.sendall(cmd)
+    response = recv_from_sock(server_sock)
+    #
+    assert response == RCPT_503_RESP
+    return reports
+
+
+def rcpt_cmd_expect_helo_test4(server_sock):
+    ip_addr = get_ip_addr(server_sock)
+    reports = [gen_connect_report(ip_addr)]
+    response = recv_from_sock(server_sock)
+    assert response[0:3] == WELCOME_RESP
+    bytelist = list(range(256))
+    # for _ in TOKEN_SEPARATORS:
+    #     bytelist.remove(_)
+    bytelist.remove(10)
+    # bytelist.remove(FTP_CMD_SEP)
+    # user = gen_rand_bytes(bytelist, 4090)
+    cmd = b"".join([gen_rand_bytes(TOKEN_SEPARATORS, 5),b"rcpt",gen_rand_bytes(TOKEN_SEPARATORS, 5), gen_rand_bytes(bytelist, 5000),b"\n"])
+    # cmd = b"\n"
+    #
+    server_sock.sendall(cmd)
+    response = recv_from_sock(server_sock)
+    #
+    assert response == RCPT_503_RESP
+    return reports
+
+
+def data_cmd_ecpect_helo_test1(server_sock):
+    ip_addr = get_ip_addr(server_sock)
+    reports = [gen_connect_report(ip_addr)]
+    response = recv_from_sock(server_sock)
+    assert response[0:3] == WELCOME_RESP
+    # bytelist = list(range(256))
+    # bytelist.remove(FTP_CMD_SEP)
+    # user = gen_rand_bytes(bytelist, 4090)
+    cmd = b"".join([b"data", b"\n"])
+    # cmd = b"\n"
+    server_sock.sendall(cmd)
+    response = recv_from_sock(server_sock)
+    #
+    assert response == DATA_503_RESP
+    return reports
+
+
+def data_cmd_expect_helo_test2(server_sock):
+    ip_addr = get_ip_addr(server_sock)
+    reports = [gen_connect_report(ip_addr)]
+    response = recv_from_sock(server_sock)
+    assert response[0:3] == WELCOME_RESP
+    # bytelist = list(range(256))
+    # bytelist.remove(FTP_CMD_SEP)
+    # user = gen_rand_bytes(bytelist, 4090)
+    cmd = b"".join([gen_rand_bytes(TOKEN_SEPARATORS, 5),b"data",gen_rand_bytes(TOKEN_SEPARATORS, 5), b"\n"])
+    # cmd = b"\n"
+    server_sock.sendall(cmd)
+    response = recv_from_sock(server_sock)
+    #
+    assert response == DATA_503_RESP
+    return reports
+
+
+def data_cmd_expect_helo_test3(server_sock):
+    ip_addr = get_ip_addr(server_sock)
+    reports = [gen_connect_report(ip_addr)]
+    response = recv_from_sock(server_sock)
+    assert response[0:3] == WELCOME_RESP
+    bytelist = list(range(256))
+    for _ in TOKEN_SEPARATORS:
+        bytelist.remove(_)
+    bytelist.remove(10)
+    # bytelist.remove(FTP_CMD_SEP)
+    # user = gen_rand_bytes(bytelist, 4090)
+    # cmd = b"".join([gen_rand_bytes(TOKEN_SEPARATORS, 5),b"rset",gen_rand_bytes(TOKEN_SEPARATORS, 5), gen_rand_bytes(bytelist, 1),b"\n"])
+    cmd = b"".join([gen_rand_bytes(TOKEN_SEPARATORS, 1),b"data",gen_rand_bytes(TOKEN_SEPARATORS, 1), b"A",b"\n"])
+    # cmd = b"\n"
+    #
+    server_sock.sendall(cmd)
+    response = recv_from_sock(server_sock)
+    #
+    assert response == DATA_503_RESP
+    return reports
+
+
+def data_cmd_expect_helo_test4(server_sock):
+    ip_addr = get_ip_addr(server_sock)
+    reports = [gen_connect_report(ip_addr)]
+    response = recv_from_sock(server_sock)
+    assert response[0:3] == WELCOME_RESP
+    bytelist = list(range(256))
+    for _ in TOKEN_SEPARATORS:
+        bytelist.remove(_)
+    bytelist.remove(10)
+    # bytelist.remove(FTP_CMD_SEP)
+    # user = gen_rand_bytes(bytelist, 4090)
+    cmd = b"".join([gen_rand_bytes(TOKEN_SEPARATORS, 5),b"data",gen_rand_bytes(TOKEN_SEPARATORS, 5), gen_rand_bytes(bytelist, 5000),b"\n"])
+    # cmd = b"\n"
+    #
+    server_sock.sendall(cmd)
+    response = recv_from_sock(server_sock)
+    #
+    assert response == DATA_503_RESP
+    return reports
+
+
+def helo_cmd_ecpect_helo_test1(server_sock):
+    ip_addr = get_ip_addr(server_sock)
+    reports = [gen_connect_report(ip_addr)]
+    response = recv_from_sock(server_sock)
+    assert response[0:3] == WELCOME_RESP
+    # bytelist = list(range(256))
+    # bytelist.remove(FTP_CMD_SEP)
+    # user = gen_rand_bytes(bytelist, 4090)
+    cmd = b"".join([b"helo", b"\n"])
+    # cmd = b"\n"
+    server_sock.sendall(cmd)
+    response = recv_from_sock(server_sock)
+    #
+    assert response == HELO_501_RESP
+    return reports
+
+
+def helo_cmd_expect_helo_test2(server_sock):
+    ip_addr = get_ip_addr(server_sock)
+    reports = [gen_connect_report(ip_addr)]
+    response = recv_from_sock(server_sock)
+    assert response[0:3] == WELCOME_RESP
+    # bytelist = list(range(256))
+    # bytelist.remove(FTP_CMD_SEP)
+    # user = gen_rand_bytes(bytelist, 4090)
+    cmd = b"".join([gen_rand_bytes(TOKEN_SEPARATORS, 5),b"helo",gen_rand_bytes(TOKEN_SEPARATORS, 5), b"\n"])
+    # cmd = b"\n"
+    server_sock.sendall(cmd)
+    response = recv_from_sock(server_sock)
+    #
+    assert response == HELO_501_RESP
+    return reports
+
+
+def helo_cmd_expect_helo_test3(server_sock):
+    ip_addr = get_ip_addr(server_sock)
+    reports = [gen_connect_report(ip_addr)]
+    response = recv_from_sock(server_sock)
+    assert response[0:3] == WELCOME_RESP
+    bytelist = list(range(256))
+    for _ in TOKEN_SEPARATORS:
+        bytelist.remove(_)
+    bytelist.remove(10)
+    # bytelist.remove(FTP_CMD_SEP)
+    # user = gen_rand_bytes(bytelist, 4090)
+    cmd = b"".join([gen_rand_bytes(TOKEN_SEPARATORS, 5),b"helo",gen_rand_bytes(TOKEN_SEPARATORS, 5), gen_rand_bytes(bytelist, 1),b"\n"])
+    # cmd = b"\n"
+    #
+    server_sock.sendall(cmd)
+    response = recv_from_sock(server_sock)
+    #
+    assert response[0:3] == HELO_250_RESP
+    return reports
+
+
+def helo_cmd_expect_helo_test4(server_sock):
+    ip_addr = get_ip_addr(server_sock)
+    reports = [gen_connect_report(ip_addr)]
+    response = recv_from_sock(server_sock)
+    assert response[0:3] == WELCOME_RESP
+    bytelist = list(range(256))
+    for _ in TOKEN_SEPARATORS:
+        bytelist.remove(_)
+    bytelist.remove(10)
+    # bytelist.remove(FTP_CMD_SEP)
+    # user = gen_rand_bytes(bytelist, 4090)
+    cmd = b"".join([gen_rand_bytes(TOKEN_SEPARATORS, 5),b"helo",gen_rand_bytes(TOKEN_SEPARATORS, 5), gen_rand_bytes(bytelist, 5000),b"\n"])
+    # cmd = b"\n"
+    #
+    server_sock.sendall(cmd)
+    response = recv_from_sock(server_sock)
+    #
+    assert response[0:3] == HELO_250_RESP
+    return reports
+
+def ehlo_cmd_ecpect_helo_test1(server_sock):
+    ip_addr = get_ip_addr(server_sock)
+    reports = [gen_connect_report(ip_addr)]
+    response = recv_from_sock(server_sock)
+    assert response[0:3] == WELCOME_RESP
+    # bytelist = list(range(256))
+    # bytelist.remove(FTP_CMD_SEP)
+    # user = gen_rand_bytes(bytelist, 4090)
+    cmd = b"".join([b"ehlo", b"\n"])
+    # cmd = b"\n"
+    server_sock.sendall(cmd)
+    response = recv_from_sock(server_sock)
+    #
+    assert response == EHLO_501_RESP
+    return reports
+
+
+def ehlo_cmd_expect_helo_test2(server_sock):
+    ip_addr = get_ip_addr(server_sock)
+    reports = [gen_connect_report(ip_addr)]
+    response = recv_from_sock(server_sock)
+    assert response[0:3] == WELCOME_RESP
+    # bytelist = list(range(256))
+    # bytelist.remove(FTP_CMD_SEP)
+    # user = gen_rand_bytes(bytelist, 4090)
+    cmd = b"".join([gen_rand_bytes(TOKEN_SEPARATORS, 5),b"ehlo",gen_rand_bytes(TOKEN_SEPARATORS, 5), b"\n"])
+    # cmd = b"\n"
+    server_sock.sendall(cmd)
+    response = recv_from_sock(server_sock)
+    #
+    assert response == EHLO_501_RESP
+    return reports
+
+
+def ehlo_cmd_expect_helo_test3(server_sock):
+    ip_addr = get_ip_addr(server_sock)
+    reports = [gen_connect_report(ip_addr)]
+    response = recv_from_sock(server_sock)
+    assert response[0:3] == WELCOME_RESP
+    bytelist = list(range(256))
+    for _ in TOKEN_SEPARATORS:
+        bytelist.remove(_)
+    bytelist.remove(10)
+    # bytelist.remove(FTP_CMD_SEP)
+    # user = gen_rand_bytes(bytelist, 4090)
+    cmd = b"".join([gen_rand_bytes(TOKEN_SEPARATORS, 5),b"ehlo",gen_rand_bytes(TOKEN_SEPARATORS, 5), gen_rand_bytes(bytelist, 1),b"\n"])
+    # cmd = b"\n"
+    #
+    server_sock.sendall(cmd)
+    response = recv_from_sock(server_sock)
+    #
+    assert response[0:3] == EHLO_250_RESP
+    return reports
+
+
+def ehlo_cmd_expect_helo_test4(server_sock):
+    ip_addr = get_ip_addr(server_sock)
+    reports = [gen_connect_report(ip_addr)]
+    response = recv_from_sock(server_sock)
+    assert response[0:3] == WELCOME_RESP
+    bytelist = list(range(256))
+    for _ in TOKEN_SEPARATORS:
+        bytelist.remove(_)
+    bytelist.remove(10)
+    # bytelist.remove(FTP_CMD_SEP)
+    # user = gen_rand_bytes(bytelist, 4090)
+    cmd = b"".join([gen_rand_bytes(TOKEN_SEPARATORS, 5),b"ehlo",gen_rand_bytes(TOKEN_SEPARATORS, 5), gen_rand_bytes(bytelist, 5000),b"\n"])
+    # cmd = b"\n"
+    #
+    server_sock.sendall(cmd)
+    response = recv_from_sock(server_sock)
+    #
+    assert response[0:3] == EHLO_250_RESP
+    return reports
+
+
+#######################################################################################################################################
+#######################################################################################################################################
+
+
+def auth_cmd_helo_sent_no_sasl_test1(server_sock):
+    ip_addr = get_ip_addr(server_sock)
+    reports = [gen_connect_report(ip_addr)]
+    response = recv_from_sock(server_sock)
+    assert response[0:3] == WELCOME_RESP
+
+    cmd = b"ehlo a\n"
+    server_sock.sendall(cmd)
+    response = recv_from_sock(server_sock)
+
+    assert response[0:3] == EHLO_250_RESP
+
+    cmd = b"auth\n"
+    server_sock.sendall(cmd)
+    response = recv_from_sock(server_sock)
+
+    assert response == AUTH_501_RESP
+    return reports
+
+
+def auth_cmd_helo_sent_no_sasl_test2(server_sock):
+    ip_addr = get_ip_addr(server_sock)
+    reports = [gen_connect_report(ip_addr)]
+    response = recv_from_sock(server_sock)
+    assert response[0:3] == WELCOME_RESP
+
+    cmd = b"ehlo a\n"
+    server_sock.sendall(cmd)
+    response = recv_from_sock(server_sock)
+    assert response[0:3] == EHLO_250_RESP
+
+    cmd = b"".join([gen_rand_bytes(TOKEN_SEPARATORS, 5),b"auth",gen_rand_bytes(TOKEN_SEPARATORS, 5),b"\n"])
+    server_sock.sendall(cmd)
+    response = recv_from_sock(server_sock)
+    assert response == AUTH_501_RESP
+    return reports
+
+
+def auth_cmd_helo_sent_sasl_test1(server_sock):
+    ip_addr = get_ip_addr(server_sock)
+    reports = [gen_connect_report(ip_addr)]
+    response = recv_from_sock(server_sock)
+    assert response[0:3] == WELCOME_RESP
+
+    cmd = b"ehlo a\n"
+    server_sock.sendall(cmd)
+    response = recv_from_sock(server_sock)
+    assert response[0:3] == EHLO_250_RESP
+
+    cmd = b"".join([gen_rand_bytes(TOKEN_SEPARATORS, 5),b"auth",gen_rand_bytes(TOKEN_SEPARATORS, 5),b"plain",b"\n"])
+    server_sock.sendall(cmd)
+    response = recv_from_sock(server_sock)
+    assert response == AUTH_PLAIN_ASK_DATA_RESP
+    return reports
+
+def auth_cmd_helo_sent_sasl_test2(server_sock):
+    ip_addr = get_ip_addr(server_sock)
+    reports = [gen_connect_report(ip_addr)]
+    response = recv_from_sock(server_sock)
+    assert response[0:3] == WELCOME_RESP
+
+    cmd = b"ehlo a\n"
+    server_sock.sendall(cmd)
+    response = recv_from_sock(server_sock)
+    assert response[0:3] == EHLO_250_RESP
+
+    cmd = b"".join([gen_rand_bytes(TOKEN_SEPARATORS, 5),b"auth",gen_rand_bytes(TOKEN_SEPARATORS, 5),b"plain",gen_rand_bytes(TOKEN_SEPARATORS,6),b"\n"])
+    server_sock.sendall(cmd)
+    response = recv_from_sock(server_sock)
+    assert response == AUTH_PLAIN_ASK_DATA_RESP
+    return reports
+
+
+def auth_cmd_helo_sent_sasl_test3(server_sock):
+    ip_addr = get_ip_addr(server_sock)
+    reports = [gen_connect_report(ip_addr)]
+    response = recv_from_sock(server_sock)
+    assert response[0:3] == WELCOME_RESP
+
+    cmd = b"ehlo a\n"
+    server_sock.sendall(cmd)
+    response = recv_from_sock(server_sock)
+    assert response[0:3] == EHLO_250_RESP
+
+    cmd = b"".join([gen_rand_bytes(TOKEN_SEPARATORS, 5),b"auth",gen_rand_bytes(TOKEN_SEPARATORS, 5),b"login",b"\n"])
+    server_sock.sendall(cmd)
+    response = recv_from_sock(server_sock)
+    assert response == AUTH_LOG_ASK_USER_RESP
+    return reports
+
+def auth_cmd_helo_sent_sasl_test4(server_sock):
+    ip_addr = get_ip_addr(server_sock)
+    reports = [gen_connect_report(ip_addr)]
+    response = recv_from_sock(server_sock)
+    assert response[0:3] == WELCOME_RESP
+
+    cmd = b"ehlo a\n"
+    server_sock.sendall(cmd)
+    response = recv_from_sock(server_sock)
+    assert response[0:3] == EHLO_250_RESP
+
+    cmd = b"".join([gen_rand_bytes(TOKEN_SEPARATORS, 5),b"auth",gen_rand_bytes(TOKEN_SEPARATORS, 5),b"login",gen_rand_bytes(TOKEN_SEPARATORS,6),b"\n"])
+    server_sock.sendall(cmd)
+    response = recv_from_sock(server_sock)
+    assert response == AUTH_LOG_ASK_USER_RESP
+    return reports
+
+
+
+def auth_cmd_helo_sent_sasl_test5(server_sock):
+    ip_addr = get_ip_addr(server_sock)
+    reports = [gen_connect_report(ip_addr)]
+    response = recv_from_sock(server_sock)
+    assert response[0:3] == WELCOME_RESP
+
+    cmd = b"ehlo a\n"
+    server_sock.sendall(cmd)
+    response = recv_from_sock(server_sock)
+    assert response[0:3] == EHLO_250_RESP
+
+    cmd = b"".join([gen_rand_bytes(TOKEN_SEPARATORS, 5),b"auth",gen_rand_bytes(TOKEN_SEPARATORS, 5),b"dfdfdf",b"\n"])
+    server_sock.sendall(cmd)
+    response = recv_from_sock(server_sock)
+    assert response == AUTH_INVLD_SASL_MECH
+    return reports
+
+
+def auth_cmd_helo_sent_sasl_test6(server_sock):
+    ip_addr = get_ip_addr(server_sock)
+    reports = [gen_connect_report(ip_addr)]
+    response = recv_from_sock(server_sock)
+    assert response[0:3] == WELCOME_RESP
+
+    cmd = b"ehlo a\n"
+    server_sock.sendall(cmd)
+    response = recv_from_sock(server_sock)
+    assert response[0:3] == EHLO_250_RESP
+
+    cmd = b"".join([gen_rand_bytes(TOKEN_SEPARATORS, 5),b"auth",gen_rand_bytes(TOKEN_SEPARATORS, 5),b"klljkj",gen_rand_bytes(TOKEN_SEPARATORS,6),b"\n"])
+    server_sock.sendall(cmd)
+    response = recv_from_sock(server_sock)
+    assert response == AUTH_INVLD_SASL_MECH
+    return reports
+
+########################################################################################################################################################################
+
+
+def auth_cmd_helo_sent_init_resp_test1(server_sock):
+    ip_addr = get_ip_addr(server_sock)
+    reports = [gen_connect_report(ip_addr)]
+    response = recv_from_sock(server_sock)
+    assert response[0:3] == WELCOME_RESP
+
+    cmd = b"ehlo a\n"
+    server_sock.sendall(cmd)
+    response = recv_from_sock(server_sock)
+    assert response[0:3] == EHLO_250_RESP
+
+    passwd = b"aaaaaasassasdfgdfgdfg"
+
+    cmd = b"".join([gen_rand_bytes(TOKEN_SEPARATORS, 5),b"auth",gen_rand_bytes(TOKEN_SEPARATORS, 5),
+        b"plain",gen_rand_bytes(TOKEN_SEPARATORS,6),base64.standard_b64encode(passwd),b"\n"])
+
+    reports.append(gen_plain_report(ip_addr,passwd))
+
+    server_sock.sendall(cmd)
+    response = recv_from_sock(server_sock)
+    assert response == AUTH_PLAIN_INIT_RESP_RESP
+    return reports
+
+
+def auth_cmd_helo_sent_init_resp_test2(server_sock):
+    ip_addr = get_ip_addr(server_sock)
+    reports = [gen_connect_report(ip_addr)]
+    response = recv_from_sock(server_sock)
+    assert response[0:3] == WELCOME_RESP
+
+    cmd = b"ehlo a\n"
+    server_sock.sendall(cmd)
+    response = recv_from_sock(server_sock)
+    assert response[0:3] == EHLO_250_RESP
+
+    passwd = b"aaaaaasassasdfgdfgdfg"
+
+    cmd = b"".join([gen_rand_bytes(TOKEN_SEPARATORS, 5),b"auth",gen_rand_bytes(TOKEN_SEPARATORS, 5),
+        b"plain",gen_rand_bytes(TOKEN_SEPARATORS,6),base64.standard_b64encode(passwd),gen_rand_bytes(TOKEN_SEPARATORS, 5),b"\n"])
+
+    reports.append(gen_plain_report(ip_addr,passwd))
+
+    server_sock.sendall(cmd)
+    response = recv_from_sock(server_sock)
+    assert response == AUTH_PLAIN_INIT_RESP_RESP
+    return reports
+
+
+
+def auth_cmd_helo_sent_init_resp_test3(server_sock):
+    ip_addr = get_ip_addr(server_sock)
+    reports = [gen_connect_report(ip_addr)]
+    response = recv_from_sock(server_sock)
+    assert response[0:3] == WELCOME_RESP
+
+    cmd = b"ehlo a\n"
+    server_sock.sendall(cmd)
+    response = recv_from_sock(server_sock)
+    assert response[0:3] == EHLO_250_RESP
+
+
+    cmd = b"".join([gen_rand_bytes(TOKEN_SEPARATORS, 5),b"auth",gen_rand_bytes(TOKEN_SEPARATORS, 5),
+        b"plain",gen_rand_bytes(TOKEN_SEPARATORS,6),b"@@@@@@",b"\n"])
+
+
+    server_sock.sendall(cmd)
+    response = recv_from_sock(server_sock)
+    # print(response)
+    # TODO
+    assert response == AUTH_INIT_RESP_ERROR
+    return reports
+
+
+
+def auth_cmd_helo_sent_init_resp_test4(server_sock):
+    ip_addr = get_ip_addr(server_sock)
+    reports = [gen_connect_report(ip_addr)]
+    response = recv_from_sock(server_sock)
+    assert response[0:3] == WELCOME_RESP
+
+    cmd = b"ehlo a\n"
+    server_sock.sendall(cmd)
+    response = recv_from_sock(server_sock)
+    assert response[0:3] == EHLO_250_RESP
+
+
+    cmd = b"".join([gen_rand_bytes(TOKEN_SEPARATORS, 5),b"auth",gen_rand_bytes(TOKEN_SEPARATORS, 5),
+        b"plain",gen_rand_bytes(TOKEN_SEPARATORS,6),b"@@@@@",gen_rand_bytes(TOKEN_SEPARATORS, 5),b"\n"])
+
+
+    server_sock.sendall(cmd)
+    response = recv_from_sock(server_sock)
+    assert response == AUTH_INIT_RESP_ERROR
+    return reports
+
+
+
+def auth_cmd_helo_sent_init_resp_test5(server_sock):
+    ip_addr = get_ip_addr(server_sock)
+    reports = [gen_connect_report(ip_addr)]
+    response = recv_from_sock(server_sock)
+    assert response[0:3] == WELCOME_RESP
+
+    cmd = b"ehlo a\n"
+    server_sock.sendall(cmd)
+    response = recv_from_sock(server_sock)
+    assert response[0:3] == EHLO_250_RESP
+
+
+    user = b"asdasdas"
+
+    cmd = b"".join([gen_rand_bytes(TOKEN_SEPARATORS, 5),b"auth",gen_rand_bytes(TOKEN_SEPARATORS, 5),
+        b"login",gen_rand_bytes(TOKEN_SEPARATORS,6),base64.standard_b64encode(user),b"\n"])
+
+
+    server_sock.sendall(cmd)
+    response = recv_from_sock(server_sock)
+    assert response == AUTH_LOG_ASK_FOR_PASSW
+    return reports
+
+
+def auth_cmd_helo_sent_init_resp_test6(server_sock):
+    ip_addr = get_ip_addr(server_sock)
+    reports = [gen_connect_report(ip_addr)]
+    response = recv_from_sock(server_sock)
+    assert response[0:3] == WELCOME_RESP
+
+    cmd = b"ehlo a\n"
+    server_sock.sendall(cmd)
+    response = recv_from_sock(server_sock)
+    assert response[0:3] == EHLO_250_RESP
+
+    user = b"asdsadsad"
+
+    cmd = b"".join([gen_rand_bytes(TOKEN_SEPARATORS, 5),b"auth",gen_rand_bytes(TOKEN_SEPARATORS, 5),
+        b"login",gen_rand_bytes(TOKEN_SEPARATORS,6),base64.standard_b64encode(user),gen_rand_bytes(TOKEN_SEPARATORS, 5),b"\n"])
+
+
+    server_sock.sendall(cmd)
+    response = recv_from_sock(server_sock)
+    assert response == AUTH_LOG_ASK_FOR_PASSW
+    return reports
+
+
+
+def auth_cmd_helo_sent_init_resp_test7(server_sock):
+    ip_addr = get_ip_addr(server_sock)
+    reports = [gen_connect_report(ip_addr)]
+    response = recv_from_sock(server_sock)
+    assert response[0:3] == WELCOME_RESP
+
+    cmd = b"ehlo a\n"
+    server_sock.sendall(cmd)
+    response = recv_from_sock(server_sock)
+    assert response[0:3] == EHLO_250_RESP
+
+
+    cmd = b"".join([gen_rand_bytes(TOKEN_SEPARATORS, 5),b"auth",gen_rand_bytes(TOKEN_SEPARATORS, 5),
+        b"login",gen_rand_bytes(TOKEN_SEPARATORS,6),b"@@@@@@",b"\n"])
+
+
+    server_sock.sendall(cmd)
+    response = recv_from_sock(server_sock)
+    assert response == AUTH_INIT_RESP_ERROR
+    return reports
+
+
+
+def auth_cmd_helo_sent_init_resp_test8(server_sock):
+    ip_addr = get_ip_addr(server_sock)
+    reports = [gen_connect_report(ip_addr)]
+    response = recv_from_sock(server_sock)
+    assert response[0:3] == WELCOME_RESP
+
+    cmd = b"ehlo a\n"
+    server_sock.sendall(cmd)
+    response = recv_from_sock(server_sock)
+    assert response[0:3] == EHLO_250_RESP
+
+
+    cmd = b"".join([gen_rand_bytes(TOKEN_SEPARATORS, 5),b"auth",gen_rand_bytes(TOKEN_SEPARATORS, 5),
+        b"login",gen_rand_bytes(TOKEN_SEPARATORS,6),b"@@@@@",gen_rand_bytes(TOKEN_SEPARATORS, 5),b"\n"])
+
+    server_sock.sendall(cmd)
+    response = recv_from_sock(server_sock)
+    assert response == AUTH_INIT_RESP_ERROR
+    return reports
+
+
+def auth_cmd_helo_sent_too_much_param_test1(server_sock):
+    ip_addr = get_ip_addr(server_sock)
+    reports = [gen_connect_report(ip_addr)]
+    response = recv_from_sock(server_sock)
+    assert response[0:3] == WELCOME_RESP
+
+    cmd = b"ehlo a\n"
+    server_sock.sendall(cmd)
+    response = recv_from_sock(server_sock)
+    assert response[0:3] == EHLO_250_RESP
+
+
+    cmd = b"".join([gen_rand_bytes(TOKEN_SEPARATORS, 5),b"auth",gen_rand_bytes(TOKEN_SEPARATORS, 5),
+        b"login",gen_rand_bytes(TOKEN_SEPARATORS,6),b"@@@@@",gen_rand_bytes(TOKEN_SEPARATORS, 5),b"s",b"\n"])
+
+    server_sock.sendall(cmd)
+    response = recv_from_sock(server_sock)
+
+    assert response == AUTH_501_RESP
+    return reports
+
+
+def auth_cmd_helo_sent_too_much_param_test2(server_sock):
+    ip_addr = get_ip_addr(server_sock)
+    reports = [gen_connect_report(ip_addr)]
+    response = recv_from_sock(server_sock)
+    assert response[0:3] == WELCOME_RESP
+
+    cmd = b"ehlo a\n"
+    server_sock.sendall(cmd)
+    response = recv_from_sock(server_sock)
+    assert response[0:3] == EHLO_250_RESP
+
+
+    cmd = b"".join([gen_rand_bytes(TOKEN_SEPARATORS, 5),b"auth",gen_rand_bytes(TOKEN_SEPARATORS, 5),
+        b"plain",gen_rand_bytes(TOKEN_SEPARATORS,6),b"@@@@@",gen_rand_bytes(TOKEN_SEPARATORS, 5),b"s",b"\n"])
+
+    server_sock.sendall(cmd)
+    response = recv_from_sock(server_sock)
+    assert response == AUTH_501_RESP
+    return reports
+
+
+def auth_cmd_helo_sent_too_much_param_test3(server_sock):
+    ip_addr = get_ip_addr(server_sock)
+    reports = [gen_connect_report(ip_addr)]
+    response = recv_from_sock(server_sock)
+    assert response[0:3] == WELCOME_RESP
+
+    cmd = b"ehlo a\n"
+    server_sock.sendall(cmd)
+    response = recv_from_sock(server_sock)
+    assert response[0:3] == EHLO_250_RESP
+
+
+    cmd = b"".join([gen_rand_bytes(TOKEN_SEPARATORS, 5),b"auth",gen_rand_bytes(TOKEN_SEPARATORS, 5),
+        b"login",gen_rand_bytes(TOKEN_SEPARATORS,6),b"@@@@@",gen_rand_bytes(TOKEN_SEPARATORS, 5),
+        b"s",gen_rand_bytes(TOKEN_SEPARATORS,6),b"\n"])
+
+    server_sock.sendall(cmd)
+    response = recv_from_sock(server_sock)
+    assert response == AUTH_501_RESP
+    return reports
+
+
+def auth_cmd_helo_sent_too_much_param_test4(server_sock):
+    ip_addr = get_ip_addr(server_sock)
+    reports = [gen_connect_report(ip_addr)]
+    response = recv_from_sock(server_sock)
+    assert response[0:3] == WELCOME_RESP
+
+    cmd = b"ehlo a\n"
+    server_sock.sendall(cmd)
+    response = recv_from_sock(server_sock)
+    assert response[0:3] == EHLO_250_RESP
+
+
+    cmd = b"".join([gen_rand_bytes(TOKEN_SEPARATORS, 5),b"auth",gen_rand_bytes(TOKEN_SEPARATORS, 5),
+        b"plain",gen_rand_bytes(TOKEN_SEPARATORS,6),b"@@@@@",gen_rand_bytes(TOKEN_SEPARATORS, 5),
+        b"s",gen_rand_bytes(TOKEN_SEPARATORS,6),b"\n"])
+
+    server_sock.sendall(cmd)
+    response = recv_from_sock(server_sock)
+    assert response == AUTH_501_RESP
+    return reports
+
+
+
+############################################################################################
+
+def expect_plain_data_test1(server_sock):
+    ip_addr = get_ip_addr(server_sock)
+    reports = [gen_connect_report(ip_addr)]
+    response = recv_from_sock(server_sock)
+    assert response[0:3] == WELCOME_RESP
+
+    cmd = b"ehlo a\n"
+    server_sock.sendall(cmd)
+    response = recv_from_sock(server_sock)
+    assert response[0:3] == EHLO_250_RESP
+
+    cmd = b"auth plain\n"
+    server_sock.sendall(cmd)
+    response = recv_from_sock(server_sock)
+    assert response == AUTH_PLAIN_ASK_DATA_RESP
+
+    data = b"*\n"
+
+    server_sock.sendall(data)
+    response = recv_from_sock(server_sock)
+    assert response == PROC_DATA_AUTH_ABOR
+    return reports
+
+
+def expect_plain_data_test2(server_sock):
+    ip_addr = get_ip_addr(server_sock)
+    reports = [gen_connect_report(ip_addr)]
+    response = recv_from_sock(server_sock)
+    assert response[0:3] == WELCOME_RESP
+
+    cmd = b"ehlo a\n"
+    server_sock.sendall(cmd)
+    response = recv_from_sock(server_sock)
+    assert response[0:3] == EHLO_250_RESP
+
+    cmd = b"auth plain\n"
+    server_sock.sendall(cmd)
+    response = recv_from_sock(server_sock)
+    assert response == AUTH_PLAIN_ASK_DATA_RESP
+
+    data = b"\n"
+
+    server_sock.sendall(data)
+    response = recv_from_sock(server_sock)
+
+
+    assert response == AUTH_PLAIN_INIT_RESP_RESP
+    return reports
+
+
+def expect_plain_data_test3(server_sock):
+    ip_addr = get_ip_addr(server_sock)
+    reports = [gen_connect_report(ip_addr)]
+    response = recv_from_sock(server_sock)
+    assert response[0:3] == WELCOME_RESP
+
+    cmd = b"ehlo a\n"
+    server_sock.sendall(cmd)
+    response = recv_from_sock(server_sock)
+    assert response[0:3] == EHLO_250_RESP
+
+    cmd = b"auth plain\n"
+    server_sock.sendall(cmd)
+    response = recv_from_sock(server_sock)
+    assert response == AUTH_PLAIN_ASK_DATA_RESP
+
+    pl_data = b"dsdsdsds"
+    data = b"".join([base64.standard_b64encode(pl_data),b"\n"])
+
+    reports.append(gen_plain_report(ip_addr,pl_data))
+
+    server_sock.sendall(data)
+    response = recv_from_sock(server_sock)
+    assert response == AUTH_PLAIN_INIT_RESP_RESP
+    return reports
+
+
+def expect_plain_data_test4(server_sock):
+    ip_addr = get_ip_addr(server_sock)
+    reports = [gen_connect_report(ip_addr)]
+    response = recv_from_sock(server_sock)
+    assert response[0:3] == WELCOME_RESP
+
+    cmd = b"ehlo a\n"
+    server_sock.sendall(cmd)
+    response = recv_from_sock(server_sock)
+    assert response[0:3] == EHLO_250_RESP
+
+    cmd = b"auth plain\n"
+    server_sock.sendall(cmd)
+    response = recv_from_sock(server_sock)
+    assert response == AUTH_PLAIN_ASK_DATA_RESP
+
+    data = b"".join([b")))))",b"\n"])
+
+    server_sock.sendall(data)
+    response = recv_from_sock(server_sock)
+
+    assert response == PROC_DATA_INVALID_B64
+    return reports
+
+
+
+############################################################################################
+
+def expect_login_user_test1(server_sock):
+    ip_addr = get_ip_addr(server_sock)
+    reports = [gen_connect_report(ip_addr)]
+    response = recv_from_sock(server_sock)
+    assert response[0:3] == WELCOME_RESP
+
+    cmd = b"ehlo a\n"
+    server_sock.sendall(cmd)
+    response = recv_from_sock(server_sock)
+    assert response[0:3] == EHLO_250_RESP
+
+    cmd = b"auth login\n"
+    server_sock.sendall(cmd)
+    response = recv_from_sock(server_sock)
+    assert response == AUTH_LOG_ASK_USER_RESP
+
+    data = b"*\n"
+
+    server_sock.sendall(data)
+    response = recv_from_sock(server_sock)
+    assert response == PROC_DATA_AUTH_ABOR
+    return reports
+
+
+def expect_login_user_test2(server_sock):
+    ip_addr = get_ip_addr(server_sock)
+    reports = [gen_connect_report(ip_addr)]
+    response = recv_from_sock(server_sock)
+    assert response[0:3] == WELCOME_RESP
+
+    cmd = b"ehlo a\n"
+    server_sock.sendall(cmd)
+    response = recv_from_sock(server_sock)
+    assert response[0:3] == EHLO_250_RESP
+
+    cmd = b"auth login\n"
+    server_sock.sendall(cmd)
+    response = recv_from_sock(server_sock)
+    assert response == AUTH_LOG_ASK_USER_RESP
+
+    data = b"\n"
+
+    server_sock.sendall(data)
+    response = recv_from_sock(server_sock)
+
+
+    assert response == PROC_DATA_EXPCT_LOG_USER_EMPTY_LINE
+    return reports
+
+
+def expect_login_user_test3(server_sock):
+    ip_addr = get_ip_addr(server_sock)
+    reports = [gen_connect_report(ip_addr)]
+    response = recv_from_sock(server_sock)
+    assert response[0:3] == WELCOME_RESP
+
+    cmd = b"ehlo a\n"
+    server_sock.sendall(cmd)
+    response = recv_from_sock(server_sock)
+    assert response[0:3] == EHLO_250_RESP
+
+    cmd = b"auth login\n"
+    server_sock.sendall(cmd)
+    response = recv_from_sock(server_sock)
+    assert response == AUTH_LOG_ASK_USER_RESP
+
+    pl_data = b"dsdsdsds"
+    data = b"".join([base64.standard_b64encode(pl_data),b"\n"])
+
+    server_sock.sendall(data)
+    response = recv_from_sock(server_sock)
+    assert response == AUTH_LOG_ASK_FOR_PASSW
+    return reports
+
+
+def expect_login_user_test4(server_sock):
+    ip_addr = get_ip_addr(server_sock)
+    reports = [gen_connect_report(ip_addr)]
+    response = recv_from_sock(server_sock)
+    assert response[0:3] == WELCOME_RESP
+
+    cmd = b"ehlo a\n"
+    server_sock.sendall(cmd)
+    response = recv_from_sock(server_sock)
+    assert response[0:3] == EHLO_250_RESP
+
+    cmd = b"auth login\n"
+    server_sock.sendall(cmd)
+    response = recv_from_sock(server_sock)
+    assert response == AUTH_LOG_ASK_USER_RESP
+
+    data = b"".join([b")))))",b"\n"])
+
+    server_sock.sendall(data)
+    response = recv_from_sock(server_sock)
+
+    assert response == PROC_DATA_INVALID_B64
+    return reports
+
+
+
+############################################################################################
+
+def expect_login_passw_test1(server_sock):
+    ip_addr = get_ip_addr(server_sock)
+    reports = [gen_connect_report(ip_addr)]
+    response = recv_from_sock(server_sock)
+    assert response[0:3] == WELCOME_RESP
+
+    cmd = b"ehlo a\n"
+    server_sock.sendall(cmd)
+    response = recv_from_sock(server_sock)
+    assert response[0:3] == EHLO_250_RESP
+
+    cmd = b"auth login\n"
+    server_sock.sendall(cmd)
+    response = recv_from_sock(server_sock)
+    assert response == AUTH_LOG_ASK_USER_RESP
+
+    user = b"jokookokok"
+    data = b"".join([base64.standard_b64encode(user),b"\n"])
+
+    server_sock.sendall(data)
+    response = recv_from_sock(server_sock)
+    assert response == AUTH_LOG_ASK_FOR_PASSW
+
+    data = b"".join([b"\n"])
+
+    server_sock.sendall(data)
+    response = recv_from_sock(server_sock)
+    assert response == PROC_DATA_EXPCT_LOG_PASSW_EMPTY_LINE
+
+    return reports
+
+
+def expect_login_passw_test2(server_sock):
+    ip_addr = get_ip_addr(server_sock)
+    reports = [gen_connect_report(ip_addr)]
+    response = recv_from_sock(server_sock)
+    assert response[0:3] == WELCOME_RESP
+
+    cmd = b"ehlo a\n"
+    server_sock.sendall(cmd)
+    response = recv_from_sock(server_sock)
+    assert response[0:3] == EHLO_250_RESP
+
+    cmd = b"auth login\n"
+    server_sock.sendall(cmd)
+    response = recv_from_sock(server_sock)
+    assert response == AUTH_LOG_ASK_USER_RESP
+
+    user = b"jokookokok"
+    data = b"".join([base64.standard_b64encode(user),b"\n"])
+
+    server_sock.sendall(data)
+    response = recv_from_sock(server_sock)
+    assert response == AUTH_LOG_ASK_FOR_PASSW
+
+    data = b"".join([b"*\n"])
+
+    server_sock.sendall(data)
+    response = recv_from_sock(server_sock)
+    assert response == PROC_DATA_AUTH_ABOR
+
+    return reports
+
+
+def expect_login_passw_test3(server_sock):
+    ip_addr = get_ip_addr(server_sock)
+    reports = [gen_connect_report(ip_addr)]
+    response = recv_from_sock(server_sock)
+    assert response[0:3] == WELCOME_RESP
+
+    cmd = b"ehlo a\n"
+    server_sock.sendall(cmd)
+    response = recv_from_sock(server_sock)
+    assert response[0:3] == EHLO_250_RESP
+
+    cmd = b"auth login\n"
+    server_sock.sendall(cmd)
+    response = recv_from_sock(server_sock)
+    assert response == AUTH_LOG_ASK_USER_RESP
+
+    user = b"jokookokok"
+    data = b"".join([base64.standard_b64encode(user),b"\n"])
+
+    server_sock.sendall(data)
+    response = recv_from_sock(server_sock)
+    assert response == AUTH_LOG_ASK_FOR_PASSW
+
+    passw = b"ooooooookkkkkkkkkkkkkkkkkkkkk"
+    data = b"".join([base64.standard_b64encode(passw),b"\n"])
+
+    reports.append(gen_login_report(ip_addr,user, passw))
+
+    server_sock.sendall(data)
+    response = recv_from_sock(server_sock)
+    assert response == PROC_DATA_EXPCT_LOG_PASSW_EMPTY_LINE
+
+    return reports
+
+
+def expect_login_passw_test4(server_sock):
+    ip_addr = get_ip_addr(server_sock)
+    reports = [gen_connect_report(ip_addr)]
+    response = recv_from_sock(server_sock)
+    assert response[0:3] == WELCOME_RESP
+
+    cmd = b"ehlo a\n"
+    server_sock.sendall(cmd)
+    response = recv_from_sock(server_sock)
+    assert response[0:3] == EHLO_250_RESP
+
+    cmd = b"auth login\n"
+    server_sock.sendall(cmd)
+    response = recv_from_sock(server_sock)
+    assert response == AUTH_LOG_ASK_USER_RESP
+
+    user = b"jokookokok"
+    data = b"".join([base64.standard_b64encode(user),b"\n"])
+
+    server_sock.sendall(data)
+    response = recv_from_sock(server_sock)
+    assert response == AUTH_LOG_ASK_FOR_PASSW
+
+    data = b"".join([b")))))",b"\n"])
+
+    server_sock.sendall(data)
+    response = recv_from_sock(server_sock)
+    #
+    assert response == PROC_DATA_INVALID_B64
+    return reports
+
+##################################################################################################
+
+def plain_init_brute_force(server_sock):
+    ip_addr = get_ip_addr(server_sock)
+    reports = [gen_connect_report(ip_addr)]
+    response = recv_from_sock(server_sock)
+    assert response[0:3] == WELCOME_RESP
+
+    cmd = b"ehlo a\n"
+    server_sock.sendall(cmd)
+    response = recv_from_sock(server_sock)
+    assert response[0:3] == EHLO_250_RESP
+
+    for i in range(ERROR_LIMIT):
+
+        data = gen_rand_bytes(list(range(256)), 12000)
+        cmd = b"".join([b"auth plain ", base64.standard_b64encode(data), b"\n"])
+
+        reports.append(gen_plain_report(ip_addr, data))
+
+        server_sock.sendall(cmd)
         response = recv_from_sock(server_sock)
-        str_cmp(response, SMTP_334_LOG_USER_REP)
-        username = gen_rand_printable_str(random.randint(15, 1000))
-        username_encoded = base64.standard_b64encode(username.encode()) + b"\r\n" 
-        send_to_sock(server_sock, username_encoded)
+        #
+        assert response == AUTH_PLAIN_INIT_RESP_RESP
+
+    return reports
+
+
+def plain_brute_force(server_sock):
+    ip_addr = get_ip_addr(server_sock)
+    reports = [gen_connect_report(ip_addr)]
+    response = recv_from_sock(server_sock)
+    assert response[0:3] == WELCOME_RESP
+
+    cmd = b"ehlo a\n"
+    server_sock.sendall(cmd)
+    response = recv_from_sock(server_sock)
+    assert response[0:3] == EHLO_250_RESP
+
+    for i in range(ERROR_LIMIT):
+
+        cmd = b"auth plain\n"
+        server_sock.sendall(cmd)
         response = recv_from_sock(server_sock)
-        str_cmp(response, SMTP_334_LOG_PASS_REP)
-        password = gen_rand_printable_str(random.randint(5, 2000))
-        password_encoded = base64.standard_b64encode(password.encode()) + b"\r\n"
-        send_to_sock(server_sock, password_encoded)
-        reports.append(gen_login_auth_report(ip_addr, username, password))
+        #
+        assert response == AUTH_PLAIN_ASK_DATA_RESP
+
+        pl_data = gen_rand_bytes(list(range(256)), 12000)
+        data = b"".join([base64.standard_b64encode(pl_data), b"\n"])
+
+        reports.append(gen_plain_report(ip_addr, pl_data))
+
+        server_sock.sendall(data)
         response = recv_from_sock(server_sock)
-        if (response == SMTP_535_578_REP):
-            continue
-        elif (response == SMTP_421_REP):
-            break
-        else:
-            raise Exception("wrong flow")
+        #
+        assert response == AUTH_PLAIN_INIT_RESP_RESP
+
+    return reports
+
+
+def login_init_bruteforce(server_sock):
+    ip_addr = get_ip_addr(server_sock)
+    reports = [gen_connect_report(ip_addr)]
+    response = recv_from_sock(server_sock)
+    assert response[0:3] == WELCOME_RESP
+
+    cmd = b"ehlo a\n"
+    server_sock.sendall(cmd)
+    response = recv_from_sock(server_sock)
+    assert response[0:3] == EHLO_250_RESP
+
+    for i in range(ERROR_LIMIT):
+
+        user = gen_rand_bytes(list(range(256)),12000)
+
+        cmd = b"".join([b"auth login ",base64.standard_b64encode(user),b"\n"])
+
+        server_sock.sendall(cmd)
+        response = recv_from_sock(server_sock)
+        #
+        assert response == AUTH_LOG_ASK_FOR_PASSW
+
+        passw = gen_rand_bytes(list(range(256)), 12000)
+        data = b"".join([base64.standard_b64encode(passw), b"\n"])
+
+        reports.append(gen_login_report(ip_addr,user,passw))
+
+        server_sock.sendall(data)
+        response = recv_from_sock(server_sock)
+        #
+        assert response == PROC_DATA_EXPCT_LOG_PASSW_EMPTY_LINE
+
+    return reports
+
+
+def login_bruteforce(server_sock):
+    ip_addr = get_ip_addr(server_sock)
+    reports = [gen_connect_report(ip_addr)]
+    response = recv_from_sock(server_sock)
+    assert response[0:3] == WELCOME_RESP
+
+    cmd = b"ehlo a\n"
+    server_sock.sendall(cmd)
+    response = recv_from_sock(server_sock)
+    assert response[0:3] == EHLO_250_RESP
+
+
+    for i in range(int(ERROR_LIMIT)):
+
+
+        cmd = b"auth login\n"
+        server_sock.sendall(cmd)
+        response = recv_from_sock(server_sock)
+
+        assert response == AUTH_LOG_ASK_USER_RESP
+
+        user = gen_rand_bytes(list(range(256)),12000)
+        data = b"".join([base64.standard_b64encode(user), b"\n"])
+
+        server_sock.sendall(data)
+        response = recv_from_sock(server_sock)
+        #
+        assert response == AUTH_LOG_ASK_FOR_PASSW
+
+        passw = gen_rand_bytes(list(range(256)), 12000)
+        data = b"".join([base64.standard_b64encode(passw), b"\n"])
+
+        reports.append(gen_login_report(ip_addr,user,passw))
+
+        server_sock.sendall(data)
+        response = recv_from_sock(server_sock)
+        #
+        assert response == PROC_DATA_EXPCT_LOG_PASSW_EMPTY_LINE
+
+    return reports
+
+
+########################################################################################################################
+
+
+def etrn_cmd_helo_sent_test1(server_sock):
+    ip_addr = get_ip_addr(server_sock)
+    reports = [gen_connect_report(ip_addr)]
+    response = recv_from_sock(server_sock)
+    assert response[0:3] == WELCOME_RESP
+
+    cmd = b"ehlo a\n"
+    server_sock.sendall(cmd)
+    response = recv_from_sock(server_sock)
+    assert response[0:3] == EHLO_250_RESP
+
+    cmd = b"etrn\n"
+    server_sock.sendall(cmd)
+    response = recv_from_sock(server_sock)
+    assert response == ETRN_HELO_500_RESP
+    return reports
+
+
+
+def etrn_cmd_helo_sent_test2(server_sock):
+    ip_addr = get_ip_addr(server_sock)
+    reports = [gen_connect_report(ip_addr)]
+    response = recv_from_sock(server_sock)
+    assert response[0:3] == WELCOME_RESP
+
+    cmd = b"ehlo a\n"
+    server_sock.sendall(cmd)
+    response = recv_from_sock(server_sock)
+    assert response[0:3] == EHLO_250_RESP
+
+    cmd = b"etrn a\n"
+    server_sock.sendall(cmd)
+    response = recv_from_sock(server_sock)
+    assert response == ETRN_HELO_554_RESP_PART1+ip_addr+ETRN_HELO_554_RESP_PART2
+    return reports
+
+
+def etrn_cmd_helo_sent_test3(server_sock):
+    ip_addr = get_ip_addr(server_sock)
+    reports = [gen_connect_report(ip_addr)]
+    response = recv_from_sock(server_sock)
+    assert response[0:3] == WELCOME_RESP
+
+    cmd = b"ehlo a\n"
+    server_sock.sendall(cmd)
+    response = recv_from_sock(server_sock)
+    assert response[0:3] == EHLO_250_RESP
+
+    cmd = b"etrn a a  \n"
+    server_sock.sendall(cmd)
+    response = recv_from_sock(server_sock)
+    assert response == ETRN_HELO_500_RESP
+
+    return reports
+
+###################################################################################################################################
+
+def mail_cmd_helo_sent_test1(server_sock):
+    ip_addr = get_ip_addr(server_sock)
+    reports = [gen_connect_report(ip_addr)]
+    response = recv_from_sock(server_sock)
+    assert response[0:3] == WELCOME_RESP
+
+    cmd = b"ehlo a\n"
+    server_sock.sendall(cmd)
+    response = recv_from_sock(server_sock)
+    assert response[0:3] == EHLO_250_RESP
+
+    cmd = b"mail \n"
+    server_sock.sendall(cmd)
+    response = recv_from_sock(server_sock)
+    assert response == MAIL_501_RESP
+
+    return reports
+
+
+def mail_cmd_helo_sent_test2(server_sock):
+    ip_addr = get_ip_addr(server_sock)
+    reports = [gen_connect_report(ip_addr)]
+    response = recv_from_sock(server_sock)
+    assert response[0:3] == WELCOME_RESP
+
+    cmd = b"ehlo a\n"
+    server_sock.sendall(cmd)
+    response = recv_from_sock(server_sock)
+    assert response[0:3] == EHLO_250_RESP
+
+    cmd = b"mail sdsds\n"
+    server_sock.sendall(cmd)
+    response = recv_from_sock(server_sock)
+    assert response == MAIL_501_RESP
+
+    return reports
+
+
+
+def mail_cmd_helo_sent_test3(server_sock):
+    ip_addr = get_ip_addr(server_sock)
+    reports = [gen_connect_report(ip_addr)]
+    response = recv_from_sock(server_sock)
+    assert response[0:3] == WELCOME_RESP
+
+    cmd = b"ehlo a\n"
+    server_sock.sendall(cmd)
+    response = recv_from_sock(server_sock)
+    assert response[0:3] == EHLO_250_RESP
+
+    cmd = b"mail from:\n"
+    server_sock.sendall(cmd)
+    response = recv_from_sock(server_sock)
+    assert response == MAIL_501_RESP
+
+    return reports
+
+
+
+def mail_cmd_helo_sent_test4(server_sock):
+    ip_addr = get_ip_addr(server_sock)
+    reports = [gen_connect_report(ip_addr)]
+    response = recv_from_sock(server_sock)
+    assert response[0:3] == WELCOME_RESP
+
+    cmd = b"ehlo a\n"
+    server_sock.sendall(cmd)
+    response = recv_from_sock(server_sock)
+    assert response[0:3] == EHLO_250_RESP
+
+    cmd = b"mail from:a\n"
+    server_sock.sendall(cmd)
+    response = recv_from_sock(server_sock)
+    assert response == OK_RESP
+
+    return reports
+
+
+
+def mail_cmd_helo_sent_test5(server_sock):
+    ip_addr = get_ip_addr(server_sock)
+    reports = [gen_connect_report(ip_addr)]
+    response = recv_from_sock(server_sock)
+    assert response[0:3] == WELCOME_RESP
+
+    cmd = b"ehlo a\n"
+    server_sock.sendall(cmd)
+    response = recv_from_sock(server_sock)
+    assert response[0:3] == EHLO_250_RESP
+
+    cmd = b"mail from: a\n"
+    server_sock.sendall(cmd)
+    response = recv_from_sock(server_sock)
+    assert response == OK_RESP
+
+    return reports
+
+
+
+def mail_cmd_helo_sent_test6(server_sock):
+    ip_addr = get_ip_addr(server_sock)
+    reports = [gen_connect_report(ip_addr)]
+    response = recv_from_sock(server_sock)
+    assert response[0:3] == WELCOME_RESP
+
+    cmd = b"ehlo a\n"
+    server_sock.sendall(cmd)
+    response = recv_from_sock(server_sock)
+    assert response[0:3] == EHLO_250_RESP
+
+    cmd = b"mail \tfrom: \ta \tsdsfdsfdsfdsfdsf\n"
+    server_sock.sendall(cmd)
+    response = recv_from_sock(server_sock)
+    assert response == OK_RESP
+
+    return reports
+
+
+
+def mail_cmd_helo_sent_test7(server_sock):
+    ip_addr = get_ip_addr(server_sock)
+    reports = [gen_connect_report(ip_addr)]
+    response = recv_from_sock(server_sock)
+    assert response[0:3] == WELCOME_RESP
+
+    cmd = b"ehlo a\n"
+    server_sock.sendall(cmd)
+    response = recv_from_sock(server_sock)
+    assert response[0:3] == EHLO_250_RESP
+
+    cmd = b"mail \tfrom:a sadsads s       asdsa   \n"
+    server_sock.sendall(cmd)
+    response = recv_from_sock(server_sock)
+    assert response == OK_RESP
+
+    return reports
+
+###################################################################################################
+
+def etrn_cmd_helo_mail_sent_test1(server_sock):
+    ip_addr = get_ip_addr(server_sock)
+    reports = [gen_connect_report(ip_addr)]
+    response = recv_from_sock(server_sock)
+    assert response[0:3] == WELCOME_RESP
+
+    cmd = b"ehlo a\n"
+    server_sock.sendall(cmd)
+    response = recv_from_sock(server_sock)
+    assert response[0:3] == EHLO_250_RESP
+
+    cmd = b"mail from: a\n"
+    server_sock.sendall(cmd)
+    response = recv_from_sock(server_sock)
+    assert response == OK_RESP
+
+    cmd = b"etrn\n"
+    server_sock.sendall(cmd)
+    response = recv_from_sock(server_sock)
+    assert response == ETRN_HELO_MAIL_RESP
+
+    return reports
+
+
+def etrn_cmd_helo_mail_sent_test2(server_sock):
+    ip_addr = get_ip_addr(server_sock)
+    reports = [gen_connect_report(ip_addr)]
+    response = recv_from_sock(server_sock)
+    assert response[0:3] == WELCOME_RESP
+
+    cmd = b"ehlo a\n"
+    server_sock.sendall(cmd)
+    response = recv_from_sock(server_sock)
+    assert response[0:3] == EHLO_250_RESP
+
+    cmd = b"mail from: a\n"
+    server_sock.sendall(cmd)
+    response = recv_from_sock(server_sock)
+    assert response == OK_RESP
+
+    cmd = b"etrn\t  \t \r adasd asdasdasd \r\t\t\n"
+    server_sock.sendall(cmd)
+    response = recv_from_sock(server_sock)
+    assert response == ETRN_HELO_MAIL_RESP
+
+    return reports
+
+##########################################################################33
+
+def noop_cmd_helo_sent_test1(server_sock):
+    ip_addr = get_ip_addr(server_sock)
+    reports = [gen_connect_report(ip_addr)]
+    response = recv_from_sock(server_sock)
+    assert response[0:3] == WELCOME_RESP
+
+    cmd = b"ehlo a\n"
+    server_sock.sendall(cmd)
+    response = recv_from_sock(server_sock)
+    assert response[0:3] == EHLO_250_RESP
+
+    cmd = b"noop\n"
+    server_sock.sendall(cmd)
+    response = recv_from_sock(server_sock)
+    assert response == OK_RESP
+
+    return reports
+
+
+def noop_cmd_helo_sent_test2(server_sock):
+    ip_addr = get_ip_addr(server_sock)
+    reports = [gen_connect_report(ip_addr)]
+    response = recv_from_sock(server_sock)
+    assert response[0:3] == WELCOME_RESP
+
+    cmd = b"ehlo a\n"
+    server_sock.sendall(cmd)
+    response = recv_from_sock(server_sock)
+    assert response[0:3] == EHLO_250_RESP
+
+    cmd = b"\t\t\tnoop  sdfsdfdsf  sdfsdf\t\t\t\r\n"
+    server_sock.sendall(cmd)
+    response = recv_from_sock(server_sock)
+    assert response == OK_RESP
+
+    return reports
+
+###########################################################################
+
+def vrfy_cmd_helo_sent_test1(server_sock):
+    ip_addr = get_ip_addr(server_sock)
+    reports = [gen_connect_report(ip_addr)]
+    response = recv_from_sock(server_sock)
+    assert response[0:3] == WELCOME_RESP
+
+    cmd = b"ehlo a\n"
+    server_sock.sendall(cmd)
+    response = recv_from_sock(server_sock)
+    assert response[0:3] == EHLO_250_RESP
+
+    cmd = b"vrfy\n"
+    server_sock.sendall(cmd)
+    response = recv_from_sock(server_sock)
+    assert response == VRFY_RESP
+
+    return reports
+
+
+def vrfy_cmd_helo_sent_test2(server_sock):
+    ip_addr = get_ip_addr(server_sock)
+    reports = [gen_connect_report(ip_addr)]
+    response = recv_from_sock(server_sock)
+    assert response[0:3] == WELCOME_RESP
+
+    cmd = b"ehlo a\n"
+    server_sock.sendall(cmd)
+    response = recv_from_sock(server_sock)
+    assert response[0:3] == EHLO_250_RESP
+
+    cmd = b"\t\t\tvrfy  sdfsdfdsf  sdfsdf\t\t\t\r\n"
+    server_sock.sendall(cmd)
+    response = recv_from_sock(server_sock)
+    assert response == VRFY_RESP
+
+    return reports
+
+##########################################################################
+
+def quit_cmd_helo_sent_test1(server_sock):
+    ip_addr = get_ip_addr(server_sock)
+    reports = [gen_connect_report(ip_addr)]
+    response = recv_from_sock(server_sock)
+    assert response[0:3] == WELCOME_RESP
+
+    cmd = b"ehlo a\n"
+    server_sock.sendall(cmd)
+    response = recv_from_sock(server_sock)
+    assert response[0:3] == EHLO_250_RESP
+
+    cmd = b"quit\n"
+    server_sock.sendall(cmd)
+    response = recv_from_sock(server_sock)
+    assert response == QUIT_RESP
+
+    return reports
+
+
+def quit_cmd_helo_sent_test2(server_sock):
+    ip_addr = get_ip_addr(server_sock)
+    reports = [gen_connect_report(ip_addr)]
+    response = recv_from_sock(server_sock)
+    assert response[0:3] == WELCOME_RESP
+
+    cmd = b"ehlo a\n"
+    server_sock.sendall(cmd)
+    response = recv_from_sock(server_sock)
+    assert response[0:3] == EHLO_250_RESP
+
+    cmd = b"\t\t\tquit  sdfsdfdsf  sdfsdf\t\t\t\r\n"
+    server_sock.sendall(cmd)
+    response = recv_from_sock(server_sock)
+    assert response == QUIT_RESP
+
+    return reports
+
+
+###################################################################################################
+
+def mail_cmd_helo_mail_sent_test1(server_sock):
+    ip_addr = get_ip_addr(server_sock)
+    reports = [gen_connect_report(ip_addr)]
+    response = recv_from_sock(server_sock)
+    assert response[0:3] == WELCOME_RESP
+
+    cmd = b"ehlo a\n"
+    server_sock.sendall(cmd)
+    response = recv_from_sock(server_sock)
+    assert response[0:3] == EHLO_250_RESP
+
+    cmd = b"mail from: a\n"
+    server_sock.sendall(cmd)
+    response = recv_from_sock(server_sock)
+    assert response == OK_RESP
+
+    cmd = b"mail\n"
+    server_sock.sendall(cmd)
+    response = recv_from_sock(server_sock)
+    assert response == MAIL_HELO_MAIL_RESP
+
+    return reports
+
+
+def mail_cmd_helo_mail_sent_test2(server_sock):
+    ip_addr = get_ip_addr(server_sock)
+    reports = [gen_connect_report(ip_addr)]
+    response = recv_from_sock(server_sock)
+    assert response[0:3] == WELCOME_RESP
+
+    cmd = b"ehlo a\n"
+    server_sock.sendall(cmd)
+    response = recv_from_sock(server_sock)
+    assert response[0:3] == EHLO_250_RESP
+
+    cmd = b"mail from: a\n"
+    server_sock.sendall(cmd)
+    response = recv_from_sock(server_sock)
+    assert response == OK_RESP
+
+    cmd = b"mail\t  \t \r adasd asdasdasd \r\t\t\n"
+    server_sock.sendall(cmd)
+    response = recv_from_sock(server_sock)
+    assert response == MAIL_HELO_MAIL_RESP
+
+    return reports
+
+###################################################################################################
+
+def data_cmd_helo_mail_sent_test1(server_sock):
+    ip_addr = get_ip_addr(server_sock)
+    reports = [gen_connect_report(ip_addr)]
+    response = recv_from_sock(server_sock)
+    assert response[0:3] == WELCOME_RESP
+
+    cmd = b"ehlo a\n"
+    server_sock.sendall(cmd)
+    response = recv_from_sock(server_sock)
+    assert response[0:3] == EHLO_250_RESP
+
+    cmd = b"mail from: a\n"
+    server_sock.sendall(cmd)
+    response = recv_from_sock(server_sock)
+    assert response == OK_RESP
+
+    cmd = b"data\n"
+    server_sock.sendall(cmd)
+    response = recv_from_sock(server_sock)
+    assert response == DATA_554_RESP
+
+    return reports
+
+
+def data_cmd_helo_mail_sent_test2(server_sock):
+    ip_addr = get_ip_addr(server_sock)
+    reports = [gen_connect_report(ip_addr)]
+    response = recv_from_sock(server_sock)
+    assert response[0:3] == WELCOME_RESP
+
+    cmd = b"ehlo a\n"
+    server_sock.sendall(cmd)
+    response = recv_from_sock(server_sock)
+    assert response[0:3] == EHLO_250_RESP
+
+    cmd = b"mail from: a\n"
+    server_sock.sendall(cmd)
+    response = recv_from_sock(server_sock)
+    assert response == OK_RESP
+
+    cmd = b"data\t  \t \r adasd asdasdasd \r\t\t\n"
+    server_sock.sendall(cmd)
+    response = recv_from_sock(server_sock)
+    assert response == DATA_554_RESP
+
+    return reports
+
+
+###################################################################################################
+
+def auth_cmd_helo_mail_sent_test1(server_sock):
+    ip_addr = get_ip_addr(server_sock)
+    reports = [gen_connect_report(ip_addr)]
+    response = recv_from_sock(server_sock)
+    assert response[0:3] == WELCOME_RESP
+
+    cmd = b"ehlo a\n"
+    server_sock.sendall(cmd)
+    response = recv_from_sock(server_sock)
+    assert response[0:3] == EHLO_250_RESP
+
+    cmd = b"mail from: a\n"
+    server_sock.sendall(cmd)
+    response = recv_from_sock(server_sock)
+    assert response == OK_RESP
+
+    cmd = b"auth\n"
+    server_sock.sendall(cmd)
+    response = recv_from_sock(server_sock)
+    assert response == AUTH_HELO_MAIL_RESP
+
+    return reports
+
+
+def auth_cmd_helo_mail_sent_test2(server_sock):
+    ip_addr = get_ip_addr(server_sock)
+    reports = [gen_connect_report(ip_addr)]
+    response = recv_from_sock(server_sock)
+    assert response[0:3] == WELCOME_RESP
+
+    cmd = b"ehlo a\n"
+    server_sock.sendall(cmd)
+    response = recv_from_sock(server_sock)
+    assert response[0:3] == EHLO_250_RESP
+
+    cmd = b"mail from: a\n"
+    server_sock.sendall(cmd)
+    response = recv_from_sock(server_sock)
+    assert response == OK_RESP
+
+    cmd = b"auth\t  \t \r adasd asdasdasd \r\t\t\n"
+    server_sock.sendall(cmd)
+    response = recv_from_sock(server_sock)
+    assert response == AUTH_HELO_MAIL_RESP
+
+    return reports
+
+###################################################################################################
+
+def rcpt_cmd_helo_mail_sent_test1(server_sock):
+    ip_addr = get_ip_addr(server_sock)
+    reports = [gen_connect_report(ip_addr)]
+    response = recv_from_sock(server_sock)
+    assert response[0:3] == WELCOME_RESP
+
+    cmd = b"ehlo a\n"
+    server_sock.sendall(cmd)
+    response = recv_from_sock(server_sock)
+    assert response[0:3] == EHLO_250_RESP
+
+    cmd = b"mail from: a\n"
+    server_sock.sendall(cmd)
+    response = recv_from_sock(server_sock)
+    assert response == OK_RESP
+
+    cmd = b"rcpt\n"
+    server_sock.sendall(cmd)
+    response = recv_from_sock(server_sock)
+    assert response == RCPT_501_RESP
+
+    return reports
+
+
+def rcpt_cmd_helo_mail_sent_test2(server_sock):
+    ip_addr = get_ip_addr(server_sock)
+    reports = [gen_connect_report(ip_addr)]
+    response = recv_from_sock(server_sock)
+    assert response[0:3] == WELCOME_RESP
+
+    cmd = b"ehlo a\n"
+    server_sock.sendall(cmd)
+    response = recv_from_sock(server_sock)
+    assert response[0:3] == EHLO_250_RESP
+
+    cmd = b"mail from: a\n"
+    server_sock.sendall(cmd)
+    response = recv_from_sock(server_sock)
+    assert response == OK_RESP
+
+    cmd = b"".join([gen_rand_bytes(TOKEN_SEPARATORS,6), b"rcpt",gen_rand_bytes(TOKEN_SEPARATORS,6),b"\n"])
+    server_sock.sendall(cmd)
+    response = recv_from_sock(server_sock)
+    assert response == RCPT_501_RESP
+
+    return reports
+
+
+def rcpt_cmd_helo_mail_sent_test3(server_sock):
+    ip_addr = get_ip_addr(server_sock)
+    reports = [gen_connect_report(ip_addr)]
+    response = recv_from_sock(server_sock)
+    assert response[0:3] == WELCOME_RESP
+
+    cmd = b"ehlo a\n"
+    server_sock.sendall(cmd)
+    response = recv_from_sock(server_sock)
+    assert response[0:3] == EHLO_250_RESP
+
+    cmd = b"mail from: a\n"
+    server_sock.sendall(cmd)
+    response = recv_from_sock(server_sock)
+    assert response == OK_RESP
+
+    cmd = b"".join([gen_rand_bytes(TOKEN_SEPARATORS,6), b"rcpt",gen_rand_bytes(TOKEN_SEPARATORS,6),b"\n"])
+    server_sock.sendall(cmd)
+    response = recv_from_sock(server_sock)
+    assert response == RCPT_501_RESP
+
+    return reports
+
+
+
+def rcpt_cmd_helo_mail_sent_test4(server_sock):
+    ip_addr = get_ip_addr(server_sock)
+    reports = [gen_connect_report(ip_addr)]
+    response = recv_from_sock(server_sock)
+    assert response[0:3] == WELCOME_RESP
+
+    cmd = b"ehlo a\n"
+    server_sock.sendall(cmd)
+    response = recv_from_sock(server_sock)
+    assert response[0:3] == EHLO_250_RESP
+
+    cmd = b"mail from: a\n"
+    server_sock.sendall(cmd)
+    response = recv_from_sock(server_sock)
+    assert response == OK_RESP
+
+    byte_list = list(range(256))
+    byte_list.remove(10)
+
+    cmd = b"".join([gen_rand_bytes(TOKEN_SEPARATORS,6), b"rcpt",gen_rand_bytes(TOKEN_SEPARATORS,6),b"sdfsdfsdfds\n"])
+    server_sock.sendall(cmd)
+    response = recv_from_sock(server_sock)
+    assert response == RCPT_501_RESP
+
+    return reports
+
+
+def rcpt_cmd_helo_mail_sent_test5(server_sock):
+    ip_addr = get_ip_addr(server_sock)
+    reports = [gen_connect_report(ip_addr)]
+    response = recv_from_sock(server_sock)
+    assert response[0:3] == WELCOME_RESP
+
+    cmd = b"ehlo a\n"
+    server_sock.sendall(cmd)
+    response = recv_from_sock(server_sock)
+    assert response[0:3] == EHLO_250_RESP
+
+    cmd = b"mail from: a\n"
+    server_sock.sendall(cmd)
+    response = recv_from_sock(server_sock)
+    assert response == OK_RESP
+
+    byte_list = list(range(256))
+    byte_list.remove(10)
+
+    cmd = b"".join([gen_rand_bytes(TOKEN_SEPARATORS,6), b"rcpt",gen_rand_bytes(TOKEN_SEPARATORS,6),b"to:\n"])
+    server_sock.sendall(cmd)
+    response = recv_from_sock(server_sock)
+    assert response == RCPT_501_RESP
+
+    return reports
+
+
+def rcpt_cmd_helo_mail_sent_test6(server_sock):
+    ip_addr = get_ip_addr(server_sock)
+    reports = [gen_connect_report(ip_addr)]
+    response = recv_from_sock(server_sock)
+    assert response[0:3] == WELCOME_RESP
+
+    cmd = b"ehlo a\n"
+    server_sock.sendall(cmd)
+    response = recv_from_sock(server_sock)
+    assert response[0:3] == EHLO_250_RESP
+
+    cmd = b"mail from: a\n"
+    server_sock.sendall(cmd)
+    response = recv_from_sock(server_sock)
+    assert response == OK_RESP
+
+    byte_list = list(range(256))
+    byte_list.remove(10)
+
+    cmd = b"".join([gen_rand_bytes(TOKEN_SEPARATORS,6), b"rcpt",gen_rand_bytes(TOKEN_SEPARATORS,6),b"to:asas\n"])
+    server_sock.sendall(cmd)
+    response = recv_from_sock(server_sock)
+    assert response == RCPT_554_RESP_PART1+ip_addr+RCPT_554_RESP_PART2
+
+    return reports
+
+
+
+def rcpt_cmd_helo_mail_sent_test7(server_sock):
+    ip_addr = get_ip_addr(server_sock)
+    reports = [gen_connect_report(ip_addr)]
+    response = recv_from_sock(server_sock)
+    assert response[0:3] == WELCOME_RESP
+
+    cmd = b"ehlo a\n"
+    server_sock.sendall(cmd)
+    response = recv_from_sock(server_sock)
+    assert response[0:3] == EHLO_250_RESP
+
+    cmd = b"mail from: a\n"
+    server_sock.sendall(cmd)
+    response = recv_from_sock(server_sock)
+    assert response == OK_RESP
+
+    byte_list = list(range(256))
+    byte_list.remove(10)
+
+    cmd = b"".join([gen_rand_bytes(TOKEN_SEPARATORS,6), b"rcpt",gen_rand_bytes(TOKEN_SEPARATORS,6),b"to:",gen_rand_bytes(TOKEN_SEPARATORS,8),b"asas\n"])
+    server_sock.sendall(cmd)
+    response = recv_from_sock(server_sock)
+    assert response == RCPT_554_RESP_PART1+ip_addr+RCPT_554_RESP_PART2
+
+    return reports
+
+
+def rcpt_cmd_helo_mail_sent_test8(server_sock):
+    ip_addr = get_ip_addr(server_sock)
+    reports = [gen_connect_report(ip_addr)]
+    response = recv_from_sock(server_sock)
+    assert response[0:3] == WELCOME_RESP
+
+    cmd = b"ehlo a\n"
+    server_sock.sendall(cmd)
+    response = recv_from_sock(server_sock)
+    assert response[0:3] == EHLO_250_RESP
+
+    cmd = b"mail from: a\n"
+    server_sock.sendall(cmd)
+    response = recv_from_sock(server_sock)
+    assert response == OK_RESP
+
+    byte_list = list(range(256))
+    byte_list.remove(10)
+
+    cmd = b"".join([gen_rand_bytes(TOKEN_SEPARATORS,6),
+        b"rcpt",gen_rand_bytes(TOKEN_SEPARATORS,6),
+        b"to:",gen_rand_bytes(TOKEN_SEPARATORS,8),b"asas",
+        gen_rand_bytes(byte_list,6000),b"\n"])
+    server_sock.sendall(cmd)
+    response = recv_from_sock(server_sock)
+    assert response == RCPT_554_RESP_PART1+ip_addr+RCPT_554_RESP_PART2
+
     return reports
