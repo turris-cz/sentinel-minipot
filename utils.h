@@ -65,6 +65,18 @@ struct token{
 int setnonblock(int fd);
 int sockaddr_to_string(struct sockaddr_storage *conn_addr, char *str);
 int send_all(int fd, const char *data, size_t amount);
+
+/**
+ * tokenize - Splits string (NOT NULL TERMINATED C-STRING) into tokens according to given separators.
+ * 			There can be more separators between two tokens. Each token in saved in output array of token structs.
+ * @str: start pointer to byte array
+ * @str_len: length of byte array
+ * @tokens: start pointer to array of token structs
+ * @tokens_len: length of token structs array
+ * @separators: start pointer to array of bytes
+ * 				Each byte is considered as a separator.
+ * @sep_len: length of byte array defined by @separators
+ */
 size_t tokenize(uint8_t *str, size_t str_len, struct token *tokens, size_t tokens_len, uint8_t *separators, size_t sep_len);
 void ev_base_discard_cb(int severity, const char *msg);
 void concat_mesg(char **buff, size_t args_num, ...);
