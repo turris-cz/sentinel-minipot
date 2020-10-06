@@ -23,6 +23,7 @@
 #include <limits.h>
 #include <stdbool.h>
 #include <string.h>
+#include <base64c.h>
 
 #include "utils.h"
 #include "char_consts.h"
@@ -44,12 +45,16 @@
 
 #define CONNECT_EV "connect"
 #define MSG_EV "message"
+#define LOGIN_EV "login"
+#define INVALID_EV "invalid"
+
 #define TYPE "http"
 
 #define METHOD "method"
 #define URL "url"
 #define USER_AG "user_agent"
-#define AUTH "authorization"
+#define USERNAME "username"
+#define PASSWORD "password"
 
 #define HTTP_VERSION "HTTP/"
 
@@ -77,6 +82,7 @@ credentials (e.g., bad password), or your\nbrowser doesn\'t understand how to su
 
 #define TIME_FORMAT "%a, %d %b %Y %T GMT"
 #define TIME_STRING_SIZE 128  // This is arbitrary number (not that time output changed given by locale)
+#define BASIC_AUTH_SCHEME "Basic"
 
 enum state {
 	PROC_REQ_LINE,
@@ -122,6 +128,8 @@ static uint8_t *read_buff;
 static struct event *accept_ev;
 static struct token *tokens;
 static size_t tokens_cnt;
+static char *dcode_buff;
+static int dcoded_data_len;
 
 static void free_conn_data(struct conn_data *conn_data) {
 	free(conn_data->ipaddr_str);
@@ -226,7 +234,13 @@ static int alloc_glob_res() {
 	tokens = malloc(sizeof(*tokens) * TOKENS_LEN);
 	if (tokens == NULL)
 		goto err5;
+	dcode_buff = malloc(sizeof(*dcode_buff) * TOKEN_BUFF_LEN);
+	if (tokens == NULL)
+		goto err6;
 	return 0;
+
+	err6:
+	free(tokens);
 
 	err5:
 	event_free(accept_ev);
@@ -250,6 +264,7 @@ static void free_glob_res() {
 	event_base_free(ev_base);
 	free(read_buff);
 	free(tokens);
+	free(dcode_buff);
 }
 
 static void reset_token_buff(struct conn_data *conn_data) {
@@ -372,14 +387,14 @@ static int send_unauth(struct conn_data *conn_data) {
 	} while (0)
 
 static void report_connect(struct conn_data *conn_data) {
-	struct proxy_data data;
-	data.ts = time(NULL);
-	data.type = TYPE;
-	data.ip = conn_data->ipaddr_str;
-	data.action = CONNECT_EV;
-	data.data = NULL;
-	data.data_len = 0;
-	if (proxy_report(report_fd, &data) !=0) {
+	struct proxy_msg msg;
+	msg.ts = time(NULL);
+	msg.type = TYPE;
+	msg.ip = conn_data->ipaddr_str;
+	msg.action = CONNECT_EV;
+	msg.data = NULL;
+	msg.data_len = 0;
+	if (proxy_report(report_fd, &msg) !=0) {
 		DEBUG_PRINT("http - error - couldn't report connect\n");
 		exit_code = EXIT_FAILURE;
 		event_base_loopbreak(ev_base);
@@ -387,21 +402,58 @@ static void report_connect(struct conn_data *conn_data) {
 }
 
 static void report_message(struct conn_data *conn_data) {
-	struct uint8_t_pair msg[] = {
+	struct uint8_t_pair data[] = {
 		{METHOD, strlen(METHOD), conn_data->method, conn_data->method_len},
 		{URL, strlen(URL), conn_data->url, conn_data->url_len},
-		{AUTH, strlen(AUTH), conn_data->auth, conn_data->auth_len},
 		{USER_AG, strlen(USER_AG), conn_data->user_ag, conn_data->user_ag_len},
 	};
-	struct proxy_data data;
-	data.ts = time(NULL);
-	data.type = TYPE;
-	data.ip = conn_data->ipaddr_str;
-	data.action = MSG_EV;
-	data.data = msg;
-	data.data_len = sizeof(msg) / sizeof(*msg);
-	if (proxy_report(report_fd, &data) !=0) {
+	struct proxy_msg msg;
+	msg.ts = time(NULL);
+	msg.type = TYPE;
+	msg.ip = conn_data->ipaddr_str;
+	msg.action = MSG_EV;
+	msg.data = data;
+	msg.data_len = sizeof(data) / sizeof(*data);
+	if (proxy_report(report_fd, &msg) !=0) {
 		DEBUG_PRINT("http - error - couldn't report message\n");
+		exit_code = EXIT_FAILURE;
+		event_base_loopbreak(ev_base);
+	}
+}
+
+static void report_login(struct conn_data *conn_data, char *username, size_t username_len,
+							char *password, size_t password_len) {
+	struct uint8_t_pair data[] = {
+		{METHOD, strlen(METHOD), conn_data->method, conn_data->method_len},
+		{URL, strlen(URL), conn_data->url, conn_data->url_len},
+		{USER_AG, strlen(USER_AG), conn_data->user_ag, conn_data->user_ag_len},
+		{USERNAME, strlen(USERNAME), username, username_len},
+		{PASSWORD, strlen(PASSWORD), password, password_len},
+	};
+	struct proxy_msg msg;
+	msg.ts = time(NULL);
+	msg.type = TYPE;
+	msg.ip = conn_data->ipaddr_str;
+	msg.action = LOGIN_EV;
+	msg.data = data;
+	msg.data_len = sizeof(data) / sizeof(*data);
+	if (proxy_report(report_fd, &msg) !=0) {
+		DEBUG_PRINT("http - error - couldn't report login\n");
+		exit_code = EXIT_FAILURE;
+		event_base_loopbreak(ev_base);
+	}
+}
+
+static void report_invalid(struct conn_data *conn_data) {
+	struct proxy_msg msg;
+	msg.ts = time(NULL);
+	msg.type = TYPE;
+	msg.ip = conn_data->ipaddr_str;
+	msg.action = INVALID_EV;
+	msg.data = NULL;
+	msg.data_len = 0;
+	if (proxy_report(report_fd, &msg) !=0) {
+		DEBUG_PRINT("http - error - couldn't report invalid\n");
 		exit_code = EXIT_FAILURE;
 		event_base_loopbreak(ev_base);
 	}
@@ -444,9 +496,39 @@ static inline void skip_bytes(size_t *to_skip, uint8_t **buff, size_t *bytes_to_
 	*buff += diff;
 }
 
+static void proc_auth_data(struct conn_data *conn_data) {
+	uint8_t sep[] = {HT, SP};
+	tokens_cnt = tokenize(conn_data->auth, conn_data->auth_len, tokens, TOKENS_LEN, sep, sizeof(sep) / sizeof(*sep));
+	if (tokens_cnt != 2 ||
+		strlen(BASIC_AUTH_SCHEME) != tokens[0].len ||
+		strncmp(BASIC_AUTH_SCHEME, tokens[0].start_ptr, strlen(BASIC_AUTH_SCHEME)) ||
+		base64_verify(tokens[1].start_ptr, tokens[1].len))
+		// wrong scheme or data
+		goto err;
+
+	dcoded_data_len = base64_decode(tokens[1].start_ptr, tokens[1].len, dcode_buff);
+	char *delim = memchr(dcode_buff, DOUBLE_DOT, dcoded_data_len);
+	if (delim == NULL)
+		// wrong format of decoded data
+		goto err;
+
+	char *username = dcode_buff;
+	size_t username_len = delim - dcode_buff;
+	char *password = delim + 1;
+	size_t password_len = dcoded_data_len - username_len - 1;
+	report_login(conn_data, username, username_len, password, password_len);
+	return;
+
+	err:
+	report_invalid(conn_data);
+}
+
 static int on_mesg_end(struct conn_data *conn_data) {
 	DEBUG_PRINT("http - on mesg end\n");
-	report_message(conn_data);
+	if (conn_data->auth_len > 0)
+		proc_auth_data(conn_data);
+	else
+		report_message(conn_data);
 	reset_mesg_limits(conn_data);
 	FLOW_GUARD(send_unauth(conn_data));
 	conn_data->msg_cnt++;
