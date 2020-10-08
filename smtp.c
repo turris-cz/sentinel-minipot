@@ -41,10 +41,13 @@
 #define TYPE "smtp"
 #define CONNECT_EV "connect"
 #define LOGIN_EV "login"
-#define PLAIN_EV "plain"
+#define INVALID_EV "invalid"
+
 #define LOGIN_USER "username"
 #define LOGIN_PASS "password"
-#define PLAIN_DATA "data"
+#define SASL_MECH "sasl_mechanism"
+#define SASL_LOGIN "login"
+#define SASL_PLAIN "plain"
 
 #define TOUT_RESP_PART1 "421 4.4.2 "
 #define TOUT_RESP_PART2 " Error: timeout exceeded\r\n"
@@ -332,59 +335,95 @@ static inline int send_and_err_incr(struct conn_data *conn_data, char *mesg) {
 	return error_incr(conn_data);
 }
 
-static void report_login(struct conn_data *conn_data) {
-	struct uint8_t_pair auth[] = {
-		{LOGIN_USER, strlen(LOGIN_USER), conn_data->log_user, conn_data->log_user_len},
-		// we don't need store password for reporting - it is in dcode buffer
-		{LOGIN_PASS, strlen(LOGIN_PASS), dcode_buff, dcoded_data_len},
-	};
-	struct proxy_data data;
-	data.ts = time(NULL);
-	data.type = TYPE;
-	data.ip = conn_data->ipaddr_str;
-	data.action = LOGIN_EV;
-	data.data = auth;
-	data.data_len = sizeof(auth) / sizeof(*auth);
-	if (proxy_report(report_fd, &data) !=0) {
-		DEBUG_PRINT("smtp - error - couldn't report login\n");
-		exit_code = EXIT_FAILURE;
-		event_base_loopbreak(ev_base);
-	}
-}
-
-static void report_plain(struct conn_data *conn_data) {
-	struct uint8_t_pair auth[] = {
-		// don't need to store password - it is in dcode buffer
-		{PLAIN_DATA, strlen(PLAIN_DATA), dcode_buff, (size_t) dcoded_data_len},
-	};
-	struct proxy_data data;
-	data.ts = time(NULL);
-	data.type = TYPE;
-	data.ip = conn_data->ipaddr_str;
-	data.action = PLAIN_EV;
-	data.data = auth;
-	data.data_len = sizeof(auth) / sizeof(*auth);
-	if (proxy_report(report_fd, &data) !=0) {
-		DEBUG_PRINT("smtp - error - couldn't report plain\n");
-		exit_code = EXIT_FAILURE;
-		event_base_loopbreak(ev_base);
-	}
-}
-
 static void report_connect(struct conn_data *conn_data) {
-	struct proxy_data data;
-	data.ts = time(NULL);
-	data.type = TYPE;
-	data.ip = conn_data->ipaddr_str;
-	data.action = CONNECT_EV;
-	data.data = NULL;
-	data.data_len = 0;
-	if (proxy_report(report_fd, &data) !=0) {
+	struct proxy_msg msg;
+	msg.ts = time(NULL);
+	msg.type = TYPE;
+	msg.ip = conn_data->ipaddr_str;
+	msg.action = CONNECT_EV;
+	msg.data = NULL;
+	msg.data_len = 0;
+	if (proxy_report(report_fd, &msg) !=0) {
 		DEBUG_PRINT("smtp - error - couldn't report connect\n");
 		exit_code = EXIT_FAILURE;
 		event_base_loopbreak(ev_base);
 	}
 }
+
+static void report_login_login(struct conn_data *conn_data) {
+	struct uint8_t_pair data[] = {
+		{LOGIN_USER, strlen(LOGIN_USER), conn_data->log_user, conn_data->log_user_len},
+		// we don't need store password for reporting - it is in dcode buffer
+		{LOGIN_PASS, strlen(LOGIN_PASS), dcode_buff, dcoded_data_len},
+		{SASL_MECH, strlen(SASL_MECH), SASL_LOGIN, strlen(SASL_LOGIN)},
+	};
+	struct proxy_msg msg;
+	msg.ts = time(NULL);
+	msg.type = TYPE;
+	msg.ip = conn_data->ipaddr_str;
+	msg.data = data;
+	msg.action = LOGIN_EV;
+	msg.data_len = sizeof(data) / sizeof(*data);
+	if (proxy_report(report_fd, &msg) !=0) {
+		DEBUG_PRINT("smtp - error - couldn't report login login\n");
+		exit_code = EXIT_FAILURE;
+		event_base_loopbreak(ev_base);
+	}
+}
+
+static void report_invalid(struct conn_data *conn_data) {
+	struct proxy_msg msg;
+	msg.ts = time(NULL);
+	msg.type = TYPE;
+	msg.ip = conn_data->ipaddr_str;
+	msg.action = INVALID_EV;
+	msg.data = NULL;
+	msg.data_len = 0;
+	if (proxy_report(report_fd, &msg) !=0) {
+		DEBUG_PRINT("smtp - error - couldn't report invalid\n");
+		exit_code = EXIT_FAILURE;
+		event_base_loopbreak(ev_base);
+	}
+}
+
+static void report_login_plain(struct conn_data *conn_data) {
+	char *authzid = dcode_buff;
+	// find first null
+	char *null_byte = memchr(authzid, NUL, dcoded_data_len);
+	if (null_byte == NULL) {
+		report_invalid(conn_data);
+		return;
+	}
+	size_t authzid_len = null_byte - authzid;
+	char *authcid = null_byte + 1;
+	// find second null
+	null_byte = memchr(authcid, NUL, dcoded_data_len - authzid_len - 1);
+	if (null_byte == NULL) {
+		report_invalid(conn_data);
+		return;
+	}
+	size_t authcid_len = null_byte - authcid;
+	char *password = null_byte + 1;
+	size_t password_len = dcoded_data_len - authzid_len - authcid_len - 2;
+	struct uint8_t_pair data[] = {
+		{LOGIN_USER, strlen(LOGIN_USER), authcid, authcid_len},
+		{LOGIN_PASS, strlen(LOGIN_PASS), password, password_len},
+		{SASL_MECH, strlen(SASL_MECH), SASL_PLAIN, strlen(SASL_PLAIN)},
+	};
+	struct proxy_msg msg;
+	msg.ts = time(NULL);
+	msg.type = TYPE;
+	msg.ip = conn_data->ipaddr_str;
+	msg.data = data;
+	msg.action = LOGIN_EV;
+	msg.data_len = sizeof(data) / sizeof(*data);
+	if (proxy_report(report_fd, &msg) !=0) {
+		DEBUG_PRINT("smtp - error - couldn't report login plain\n");
+		exit_code = EXIT_FAILURE;
+		event_base_loopbreak(ev_base);
+	}
+}
+
 
 static int vrfy_cmd(struct conn_data *conn_data) {
 	DEBUG_PRINT("smtp - vrfy cmd\n");
@@ -632,6 +671,7 @@ static int auth_cmd_helo_sent_init_resp(struct conn_data *conn_data) {
 	struct sasl_mechanism *mech = sasl_mech_lookup(tokens[1].start_ptr, tokens[1].len);
 	if (mech == NULL) {
 		// invalid sasl
+		report_invalid(conn_data);
 		return send_and_err_incr(conn_data, AUTH_INVLD_SASL_MECH);
 	} else {
 		if (!base64_verify(tokens[2].start_ptr, tokens[2].len)) {
@@ -639,7 +679,7 @@ static int auth_cmd_helo_sent_init_resp(struct conn_data *conn_data) {
 			dcoded_data_len = base64_decode(tokens[2].start_ptr, tokens[2].len, dcode_buff);
 			switch (mech->abr) {
 				case PLAIN:
-					report_plain(conn_data);
+					report_login_plain(conn_data);
 					return send_and_err_incr(conn_data, AUTH_PLAIN_INIT_RESP_RESP);
 				case LOGIN:
 					conn_data->prot_state = EXPECT_LOGIN_PASSW;
@@ -652,6 +692,7 @@ static int auth_cmd_helo_sent_init_resp(struct conn_data *conn_data) {
 			}
 		} else {
 			// invalid base64 string
+			report_invalid(conn_data);
 			return send_and_err_incr(conn_data, AUTH_INIT_RESP_ERROR);
 		}
 	}
@@ -662,6 +703,7 @@ static int auth_cmd_helo_sent_only_sasl(struct conn_data *conn_data) {
 	struct sasl_mechanism *mech = sasl_mech_lookup(tokens[1].start_ptr, tokens[1].len);
 	if (mech == NULL) {
 		// invalid sasl
+		report_invalid(conn_data);
 		return send_and_err_incr(conn_data, AUTH_INVLD_SASL_MECH);
 	} else {
 		switch (mech->abr) {
@@ -766,6 +808,7 @@ static int proc_cmd(struct conn_data *conn_data) {
 }
 
 static int proc_auth_data_empty(struct conn_data *conn_data) {
+	report_invalid(conn_data);
 	switch (conn_data->prot_state) {
 		case EXPECT_PLAIN_DATA:
 			conn_data->prot_state = HELO_SENT;
@@ -799,13 +842,14 @@ static int proc_auth_data(struct conn_data *conn_data) {
 	if ((TOKEN_BUFF_LEN - conn_data->token_buff_free_space) == 1 && *conn_data->token_buff == STAR) {
 		// aborted authentication
 		conn_data->prot_state = HELO_SENT;
+		report_invalid(conn_data);
 		return send_resp(conn_data, PROC_DATA_AUTH_ABOR);
 	} else {
 		if (!base64_verify(conn_data->token_buff, TOKEN_BUFF_LEN - conn_data->token_buff_free_space)) {
 			dcoded_data_len = base64_decode(conn_data->token_buff, TOKEN_BUFF_LEN - conn_data->token_buff_free_space, dcode_buff);
 			switch (conn_data->prot_state) {
 				case EXPECT_PLAIN_DATA:
-					report_plain(conn_data);
+					report_login_plain(conn_data);
 					conn_data->prot_state = HELO_SENT;
 					return send_and_err_incr(conn_data, AUTH_PLAIN_INIT_RESP_RESP);
 				case EXPECT_LOGIN_USER:
@@ -814,7 +858,7 @@ static int proc_auth_data(struct conn_data *conn_data) {
 					conn_data->prot_state = EXPECT_LOGIN_PASSW;
 					return send_resp(conn_data, AUTH_LOG_ASK_FOR_PASSW);
 				case EXPECT_LOGIN_PASSW:
-					report_login(conn_data);
+					report_login_login(conn_data);
 					conn_data->prot_state = HELO_SENT;
 					return send_and_err_incr(conn_data, PROC_DATA_EXPCT_LOG_PASSW_EMPTY_LINE);
 				default:
@@ -824,6 +868,7 @@ static int proc_auth_data(struct conn_data *conn_data) {
 		} else {
 			// invalid base 64 string
 			conn_data->prot_state = HELO_SENT;
+			report_invalid(conn_data);
 			return send_and_err_incr(conn_data, PROC_DATA_INVALID_B64);
 		}
 	}
