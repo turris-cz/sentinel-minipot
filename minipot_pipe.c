@@ -47,8 +47,8 @@ static int write_all(int fd, const void *data, size_t len) {
 	return -1; \
 	} while (0)
 
-int proxy_report(int pipe_fd, struct proxy_data *proxy_data) {
-	if (!proxy_data || pipe_fd < 0) {
+int proxy_report(int pipe_fd, struct proxy_msg *proxy_msg) {
+	if (!proxy_msg || pipe_fd < 0) {
 		DEBUG_PRINT("proxy report - wrong arguments\n");
 		return -1;
 	}
@@ -58,38 +58,38 @@ int proxy_report(int pipe_fd, struct proxy_data *proxy_data) {
 	msgpack_packer_init(&pk, &sbuf, msgpack_sbuffer_write);
 	// ts, type, action, ip are mandatory
 	// data are optional
-	size_t map_size = (proxy_data->data_len > 0) ? 5 : 4;
+	size_t map_size = (proxy_msg->data_len > 0) ? 5 : 4;
 	msgpack_pack_map(&pk, map_size);
-	if (proxy_data->ts) {
+	if (proxy_msg->ts) {
 		PACK_STR(&pk, "ts");
-		msgpack_pack_long_long(&pk, proxy_data->ts);
+		msgpack_pack_long_long(&pk, proxy_msg->ts);
 	} else {
 		DEBUG_PRINT("proxy report - wrong ts\n");
 		DES_AND_RET(&sbuf);
 	}
-	if (proxy_data->type) {
+	if (proxy_msg->type) {
 		PACK_STR(&pk, "type");
-		PACK_STR(&pk, proxy_data->type);
+		PACK_STR(&pk, proxy_msg->type);
 	} else {
 		DEBUG_PRINT("proxy report - wrong type\n");
 		DES_AND_RET(&sbuf);
 	}
-	if (proxy_data->ip) {
+	if (proxy_msg->ip) {
 		PACK_STR(&pk, "ip");
-		PACK_STR(&pk, proxy_data->ip);
+		PACK_STR(&pk, proxy_msg->ip);
 	} else {
 		DEBUG_PRINT("proxy report - wrong ip\n");
 		DES_AND_RET(&sbuf);
 	}
-	if (proxy_data->action) {
+	if (proxy_msg->action) {
 		PACK_STR(&pk, "action");
-		PACK_STR(&pk, proxy_data->action);
+		PACK_STR(&pk, proxy_msg->action);
 	} else {
 		DEBUG_PRINT("proxy report - wrong action\n");
 		DES_AND_RET(&sbuf);
 	}
-	if (proxy_data->data_len > 0) {
-		if (proxy_data->data == NULL) {
+	if (proxy_msg->data_len > 0) {
+		if (proxy_msg->data == NULL) {
 			DEBUG_PRINT("proxy report - data ptr is NULL\n");
 			DES_AND_RET(&sbuf);
 		}
@@ -97,25 +97,25 @@ int proxy_report(int pipe_fd, struct proxy_data *proxy_data) {
 		msgpack_packer data_pk;
 		msgpack_sbuffer_init(&data_sbuf);
 		msgpack_packer_init(&data_pk, &data_sbuf, msgpack_sbuffer_write);
-		msgpack_pack_map(&data_pk, proxy_data->data_len);
+		msgpack_pack_map(&data_pk, proxy_msg->data_len);
 
-		for (size_t i = 0; i < proxy_data->data_len; i++) {
+		for (size_t i = 0; i < proxy_msg->data_len; i++) {
 				// key must have length at least 1
-				if (proxy_data->data[i].key_len < 1 || proxy_data->data[i].key == NULL) {
+				if (proxy_msg->data[i].key_len < 1 || proxy_msg->data[i].key == NULL) {
 					DEBUG_PRINT("proxy report - data key is invalid\n");
 					DES_AND_RET(&data_sbuf);
 					DES_AND_RET(&sbuf);
 				}
-				msgpack_pack_str(&data_pk, proxy_data->data[i].key_len);
-				msgpack_pack_str_body(&data_pk, proxy_data->data[i].key, proxy_data->data[i].key_len);
+				msgpack_pack_str(&data_pk, proxy_msg->data[i].key_len);
+				msgpack_pack_str_body(&data_pk, proxy_msg->data[i].key, proxy_msg->data[i].key_len);
 				// value can have zero length
-				if (proxy_data->data[i].val_len > 0 && proxy_data->data[i].val == NULL) {
+				if (proxy_msg->data[i].val_len > 0 && proxy_msg->data[i].val == NULL) {
 					DEBUG_PRINT("proxy report - data value is invalid\n");
 					DES_AND_RET(&data_sbuf);
 					DES_AND_RET(&sbuf);
 				}
-				msgpack_pack_str(&data_pk, proxy_data->data[i].val_len);
-				msgpack_pack_str_body(&data_pk, proxy_data->data[i].val, proxy_data->data[i].val_len);
+				msgpack_pack_str(&data_pk, proxy_msg->data[i].val_len);
+				msgpack_pack_str_body(&data_pk, proxy_msg->data[i].val, proxy_msg->data[i].val_len);
 		}
 		PACK_STR(&pk,"data");
 		// pack binary without header, because the data are already serialized

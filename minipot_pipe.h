@@ -29,7 +29,7 @@ struct uint8_t_pair {
 	size_t val_len;
 };
 
-struct proxy_data {
+struct proxy_msg {
 	// these fields are mandatory
 	long long int ts;
 	// these MUST be NULL terminated strings
@@ -42,6 +42,6 @@ struct proxy_data {
 	size_t data_len;
 };
 
-int proxy_report(int pipe_fd, struct proxy_data *proxy_data);
+int proxy_report(int pipe_fd, struct proxy_msg *proxy_msg);
 
 #endif /*__SENTINEL_MINIPOT_PIPE_H__*/
