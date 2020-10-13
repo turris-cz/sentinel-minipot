@@ -248,14 +248,14 @@ static void close_conn(struct conn_data *conn_data) {
 }
 
 static void report_connect(struct conn_data *conn_data) {
-	struct proxy_data data;
-	data.ts = time(NULL);
-	data.type = TYPE;
-	data.ip = conn_data->ipaddr_str;
-	data.action = CONNECT_EV;
-	data.data = NULL;
-	data.data_len = 0;
-	if (proxy_report(report_fd, &data) !=0) {
+	struct proxy_msg msg;
+	msg.ts = time(NULL);
+	msg.type = TYPE;
+	msg.ip = conn_data->ipaddr_str;
+	msg.action = CONNECT_EV;
+	msg.data = NULL;
+	msg.data_len = 0;
+	if (proxy_report(report_fd, &msg) !=0) {
 		DEBUG_PRINT("telnet - error - couldn't report connect\n");
 		exit_code = EXIT_FAILURE;
 		event_base_loopbreak(ev_base);
@@ -268,18 +268,18 @@ static void report_login(struct conn_data *conn_data) {
 		passw_len = 0;
 	else
 		passw_len = conn_data->line_wrt_ptr - conn_data->line_start_ptr;
-	struct uint8_t_pair auth[] = {
+	struct uint8_t_pair data[] = {
 		{LOGIN_USER, strlen(LOGIN_USER), conn_data->user, conn_data->user_len},
 		{LOGIN_PASS, strlen(LOGIN_PASS), conn_data->passw, passw_len},
 	};
-	struct proxy_data data;
-	data.ts = time(NULL);
-	data.type = TYPE;
-	data.ip = conn_data->ipaddr_str;
-	data.action = LOGIN_EV;
-	data.data = auth;
-	data.data_len = sizeof(auth) / sizeof(*auth);
-	if (proxy_report(report_fd, &data) != 0) {
+	struct proxy_msg msg;
+	msg.ts = time(NULL);
+	msg.type = TYPE;
+	msg.ip = conn_data->ipaddr_str;
+	msg.action = LOGIN_EV;
+	msg.data = data;
+	msg.data_len = sizeof(data) / sizeof(*data);
+	if (proxy_report(report_fd, &msg) != 0) {
 		DEBUG_PRINT("telnet - error - couldn't report login\n");
 		exit_code = EXIT_FAILURE;
 		event_base_loopbreak(ev_base);
