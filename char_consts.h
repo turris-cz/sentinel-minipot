@@ -19,6 +19,7 @@
 #ifndef __SENTINEL_MINIPOT_CHAR_CONSTS_H__
 #define __SENTINEL_MINIPOT_CHAR_CONSTS_H__
 
+#define NUL '\0'
 #define HT '\t'
 #define LF '\n'
 #define VT '\v'
