@@ -615,7 +615,7 @@ static int proc_req_line(struct conn_data *conn_data) {
 }
 
 static int check_header_name(uint8_t *name, size_t len) {
-	DEBUG_PRINT("http - check header\n");
+	DEBUG_PRINT("http - check header name\n");
 	for (size_t i = 0; i < len; i++)
 		if (name[i] <= 32 || name[i] >= 127 || name[i] == 34 || name[i] == 40 ||
 			name[i] == 41 || name[i] == 44 || name[i] == 47 ||
