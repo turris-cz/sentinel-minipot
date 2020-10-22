@@ -264,8 +264,7 @@ def empty_mesg_test1(server_sock):
         server_sock: socket
     Returns list of dictionaries - generated proxy reports or assert
     exception if communication with minipot went wrong. """
-    msg = LF
-    server_sock.sendall(msg)
+    server_sock.sendall(LF)
     response = recv_from_sock(server_sock)
     assert response[:len(MINIPOT_BAD_REQ_PART1)] == MINIPOT_BAD_REQ_PART1
     return [gen_connect_report(server_sock)]
@@ -284,8 +283,7 @@ def empty_mesg_test2(server_sock):
         server_sock: socket
     Returns list of dictionaries - generated proxy reports or assert
     exception if communication with minipot went wrong. """
-    msg = CRLF
-    server_sock.sendall(msg)
+    server_sock.sendall(CRLF)
     response = recv_from_sock(server_sock)
     assert response[:len(MINIPOT_BAD_REQ_PART1)] == MINIPOT_BAD_REQ_PART1
     return [gen_connect_report(server_sock)]
