@@ -593,7 +593,7 @@ static int proc_req_line(struct conn_data *conn_data) {
 	size_t token_len = TOKEN_BUFF_LEN - conn_data->token_buff_free_len;
 	uint8_t *first_sp = memchr(conn_data->token_buff, SP, token_len);
 	FLOW_GUARD_WITH_RESP(first_sp == NULL, conn_data);
-	size_t rest_len = token_len - (first_sp - conn_data->token_buff) -1;
+	size_t rest_len = token_len - (first_sp - conn_data->token_buff) - 1;
 	uint8_t *second_sp = memchr(first_sp + 1, SP, rest_len);
 	FLOW_GUARD_WITH_RESP(second_sp == NULL, conn_data);
 	FLOW_GUARD_WITH_RESP((first_sp + 1) == second_sp, conn_data);
@@ -814,7 +814,8 @@ static int proc_trailer(struct conn_data *conn_data) {
 		uint8_t *header_val_str = double_dot + 1;
 		size_t header_val_str_len = token_len - (double_dot - conn_data->token_buff) - 1;
 		FLOW_GUARD_WITH_RESP(check_header_name(header_name_str, header_name_str_len), conn_data);
-		return check_header_val(header_val_str, header_val_str_len);
+		FLOW_GUARD_WITH_RESP(check_header_val(header_val_str, header_val_str_len), conn_data);
+		return 0;
 	}
 }
 
