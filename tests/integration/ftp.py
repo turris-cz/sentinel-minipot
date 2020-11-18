@@ -1,6 +1,6 @@
-from random import choice, randint
+from random import randint
 
-from framework.utils import get_ip_addr, recv_from_sock
+from framework.utils import get_ip_addr, recv_from_sock, gen_rand_bytes_w10
 from framework.proxy import gen_proxy_report
 
 
