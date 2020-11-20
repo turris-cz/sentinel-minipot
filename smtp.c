@@ -350,7 +350,27 @@ static void report_connect(struct conn_data *conn_data) {
 	}
 }
 
+static void report_invalid(struct conn_data *conn_data) {
+	struct proxy_msg msg;
+	msg.ts = time(NULL);
+	msg.type = TYPE;
+	msg.ip = conn_data->ipaddr_str;
+	msg.action = INVALID_EV;
+	msg.data = NULL;
+	msg.data_len = 0;
+	if (proxy_report(report_fd, &msg) !=0) {
+		DEBUG_PRINT("smtp - error - couldn't report invalid\n");
+		exit_code = EXIT_FAILURE;
+		event_base_loopbreak(ev_base);
+	}
+}
+
 static void report_login_login(struct conn_data *conn_data) {
+	if (check_serv_data(conn_data->log_user, conn_data->log_user_len) ||
+		check_serv_data(dcode_buff, dcoded_data_len)) {
+		report_invalid(conn_data);
+		return;
+	}
 	struct uint8_t_pair data[] = {
 		{LOGIN_USER, strlen(LOGIN_USER), conn_data->log_user, conn_data->log_user_len},
 		// we don't need store password for reporting - it is in dcode buffer
@@ -371,40 +391,24 @@ static void report_login_login(struct conn_data *conn_data) {
 	}
 }
 
-static void report_invalid(struct conn_data *conn_data) {
-	struct proxy_msg msg;
-	msg.ts = time(NULL);
-	msg.type = TYPE;
-	msg.ip = conn_data->ipaddr_str;
-	msg.action = INVALID_EV;
-	msg.data = NULL;
-	msg.data_len = 0;
-	if (proxy_report(report_fd, &msg) !=0) {
-		DEBUG_PRINT("smtp - error - couldn't report invalid\n");
-		exit_code = EXIT_FAILURE;
-		event_base_loopbreak(ev_base);
-	}
-}
-
 static void report_login_plain(struct conn_data *conn_data) {
 	char *authzid = dcode_buff;
 	// find first null
 	char *null_byte = memchr(authzid, NUL, dcoded_data_len);
-	if (null_byte == NULL) {
-		report_invalid(conn_data);
-		return;
-	}
+	if (null_byte == NULL)
+		goto err;
 	size_t authzid_len = null_byte - authzid;
 	char *authcid = null_byte + 1;
 	// find second null
 	null_byte = memchr(authcid, NUL, dcoded_data_len - authzid_len - 1);
-	if (null_byte == NULL) {
-		report_invalid(conn_data);
-		return;
-	}
+	if (null_byte == NULL)
+		goto err;
 	size_t authcid_len = null_byte - authcid;
 	char *password = null_byte + 1;
 	size_t password_len = dcoded_data_len - authzid_len - authcid_len - 2;
+	if (check_serv_data(authcid, authcid_len) ||
+		check_serv_data(password, password_len))
+		goto err;
 	struct uint8_t_pair data[] = {
 		{LOGIN_USER, strlen(LOGIN_USER), authcid, authcid_len},
 		{LOGIN_PASS, strlen(LOGIN_PASS), password, password_len},
@@ -422,6 +426,9 @@ static void report_login_plain(struct conn_data *conn_data) {
 		exit_code = EXIT_FAILURE;
 		event_base_loopbreak(ev_base);
 	}
+	return;
+	err:
+	report_invalid(conn_data);
 }
 
 
