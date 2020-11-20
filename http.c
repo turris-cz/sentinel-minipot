@@ -401,7 +401,27 @@ static void report_connect(struct conn_data *conn_data) {
 	}
 }
 
+static void report_invalid(struct conn_data *conn_data) {
+	struct proxy_msg msg;
+	msg.ts = time(NULL);
+	msg.type = TYPE;
+	msg.ip = conn_data->ipaddr_str;
+	msg.action = INVALID_EV;
+	msg.data = NULL;
+	msg.data_len = 0;
+	if (proxy_report(report_fd, &msg) !=0) {
+		DEBUG_PRINT("http - error - couldn't report invalid\n");
+		exit_code = EXIT_FAILURE;
+		event_base_loopbreak(ev_base);
+	}
+}
+
 static void report_message(struct conn_data *conn_data) {
+	if (check_serv_data(conn_data->url, conn_data->url_len) ||
+		check_serv_data(conn_data->user_ag, conn_data->user_ag_len)) {
+		report_invalid(conn_data);
+		return;
+	}
 	struct uint8_t_pair data[] = {
 		{METHOD, strlen(METHOD), conn_data->method, conn_data->method_len},
 		{URL, strlen(URL), conn_data->url, conn_data->url_len},
@@ -423,6 +443,13 @@ static void report_message(struct conn_data *conn_data) {
 
 static void report_login(struct conn_data *conn_data, char *username, size_t username_len,
 							char *password, size_t password_len) {
+	if (check_serv_data(username, username_len) ||
+		check_serv_data(password, password_len) ||
+		check_serv_data(conn_data->url, conn_data->url_len) ||
+		check_serv_data(conn_data->user_ag, conn_data->user_ag_len)) {
+		report_invalid(conn_data);
+		return;
+	}
 	struct uint8_t_pair data[] = {
 		{METHOD, strlen(METHOD), conn_data->method, conn_data->method_len},
 		{URL, strlen(URL), conn_data->url, conn_data->url_len},
@@ -439,21 +466,6 @@ static void report_login(struct conn_data *conn_data, char *username, size_t use
 	msg.data_len = sizeof(data) / sizeof(*data);
 	if (proxy_report(report_fd, &msg) !=0) {
 		DEBUG_PRINT("http - error - couldn't report login\n");
-		exit_code = EXIT_FAILURE;
-		event_base_loopbreak(ev_base);
-	}
-}
-
-static void report_invalid(struct conn_data *conn_data) {
-	struct proxy_msg msg;
-	msg.ts = time(NULL);
-	msg.type = TYPE;
-	msg.ip = conn_data->ipaddr_str;
-	msg.action = INVALID_EV;
-	msg.data = NULL;
-	msg.data_len = 0;
-	if (proxy_report(report_fd, &msg) !=0) {
-		DEBUG_PRINT("http - error - couldn't report invalid\n");
 		exit_code = EXIT_FAILURE;
 		event_base_loopbreak(ev_base);
 	}
