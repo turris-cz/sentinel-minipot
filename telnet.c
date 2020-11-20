@@ -34,6 +34,7 @@
 
 #define CONNECT_EV "connect"
 #define LOGIN_EV "login"
+#define INVALID_EV "invalid"
 #define TYPE "telnet"
 
 #define LOGIN_USER "username"
@@ -262,12 +263,32 @@ static void report_connect(struct conn_data *conn_data) {
 	}
 }
 
+static void report_invalid(struct conn_data *conn_data) {
+	struct proxy_msg msg;
+	msg.ts = time(NULL);
+	msg.type = TYPE;
+	msg.ip = conn_data->ipaddr_str;
+	msg.action = INVALID_EV;
+	msg.data = NULL;
+	msg.data_len = 0;
+	if (proxy_report(report_fd, &msg) !=0) {
+		DEBUG_PRINT("telnet - error - couldn't report invalid\n");
+		exit_code = EXIT_FAILURE;
+		event_base_loopbreak(ev_base);
+	}
+}
+
 static void report_login(struct conn_data *conn_data) {
 	size_t passw_len;
 	if (conn_data->line_start_ptr == conn_data->line_wrt_ptr)
 		passw_len = 0;
 	else
 		passw_len = conn_data->line_wrt_ptr - conn_data->line_start_ptr;
+	if (check_serv_data(conn_data->user, conn_data->user_len) ||
+		check_serv_data(conn_data->passw, passw_len)) {
+		report_invalid(conn_data);
+		return;
+	}
 	struct uint8_t_pair data[] = {
 		{LOGIN_USER, strlen(LOGIN_USER), conn_data->user, conn_data->user_len},
 		{LOGIN_PASS, strlen(LOGIN_PASS), conn_data->passw, passw_len},
