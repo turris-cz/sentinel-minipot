@@ -187,3 +187,90 @@ void concat_mesg(char **buff, size_t args_num, ...) {
 		strcat(*buff, va_arg(args, char*));
 	va_end(args);
 }
+
+/*
+ * Validates whether data pointed by buff with given length can be
+ * decoded as UTF-8 string NOT containing NULL characters.
+ * If data represents UTF-8 string and do NOT contain NULL byte(s) it returns 0
+ * otherwise -1 is returned.
+ */
+int check_serv_data(uint8_t *buff, size_t len) {
+	DEBUG_PRINT("utils - check_serv_data\n");
+	enum state{S0, S1, S2, S3, S4, S5, S6, S7} state = S0;
+	for (size_t i = 0; i < len; i++) {
+		switch (state) {
+			case S0:
+				if (buff[i] >= 1 && buff[i] <= 127)
+					; // stay at current state
+				else if (buff[i] >= 194 && buff[i] <= 223)
+					state = S1;
+				else if (buff[i] == 224)
+					state = S2;
+				else if ((buff[i] >= 225 && buff[i] <= 236) ||
+					(buff[i] >= 238 && buff[i] <= 239))
+					state = S3;
+				else if (buff[i] == 237)
+					state = S4;
+				else if (buff[i] == 240)
+					state = S5;
+				else if (buff[i] >= 241 && buff[i] <= 243)
+					state = S6;
+				else if (buff[i] == 244)
+					state = S7;
+				else
+					return -1;
+				break;
+			case S1:
+				if (buff[i] >= 128 && buff[i] <= 191)
+					state = S0;
+				else
+					return -1;
+				break;
+			case S2:
+				if (buff[i] >= 160 && buff[i] <= 191)
+					state = S1;
+				else
+					return -1;
+				break;
+			case S3:
+				if (buff[i] >= 128 && buff[i] <= 191)
+					state = S1;
+				else
+					return -1;
+				break;
+			case S4:
+				if (buff[i] >= 128 && buff[i] <= 159)
+					state = S1;
+				else
+					return -1;
+				break;
+			case S5:
+				if (buff[i] >= 144 && buff[i] <= 191)
+					state = S3;
+				else
+					return -1;
+				break;
+			case S6:
+				if (buff[i] >= 128 && buff[i] <= 191)
+					state = S3;
+				else
+					return -1;
+				break;
+			case S7:
+				if (buff[i] >= 128 && buff[i] <= 143)
+					state = S3;
+				else
+					return -1;
+				break;
+		}
+	}
+	DEBUG_PRINT("state: %d\n",state);
+	// check if the string is complete
+	if (state == S0) {
+		DEBUG_PRINT("utf-8 passed\n");
+		return 0;
+	} else {
+		DEBUG_PRINT("utf-8 failed\n");
+		return -1;
+	}
+}
