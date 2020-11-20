@@ -26,6 +26,7 @@ data: no data
 
 Generated at:
 - Login attempt with empty username
+- Username or password contains invalid UTF-8 characters or NULL byte(s) 
 
 
 ## HTTP
@@ -67,7 +68,8 @@ data: no data
 Generated at:
 - HTTP message containing `Authorization` header with invalid `Basic` authentication scheme data was received.
 - HTTP message containing `Authorization` header with other authentication scheme than `Basic` was received.
-
+- Any of `url`, `user_agent`, `username`, `password` contains invalid UTF-8 character or NULL byte
+*NOTE* method CAN contain only valid UTF-8 characters otherwise it is protocol error.
 ## SMTP
 
 ### Connect
@@ -100,7 +102,7 @@ Generated at:
 - received authentication data are not valid base64 strings
 - empty line was received instead of authentication data
 - authentication process was aborted by sending `*`
-
+- username or password contains invalid UTF-8 character or NULL byte
 ## Telnet
 
 ### Connect
@@ -118,3 +120,10 @@ data:
 
 Generated at:
 - login attempt = sending password line
+
+### Invalid
+action: invalid
+data: no data
+
+Generated at:
+- username or password contains invalid UTF-8 character or NULL byte
