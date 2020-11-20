@@ -233,7 +233,27 @@ static inline int send_resp(struct conn_data *conn_data, char *mesg) {
 	}
 }
 
+static void report_invalid(struct conn_data *conn_data) {
+	struct proxy_msg msg;
+	msg.ts = time(NULL);
+	msg.type = TYPE;
+	msg.ip = conn_data->ipaddr_str;
+	msg.action = INVALID_EV;
+	msg.data = NULL;
+	msg.data_len = 0;
+	if (proxy_report(report_fd, &msg) !=0) {
+		DEBUG_PRINT("ftp - error - couldn't report invalid\n");
+		exit_code = EXIT_FAILURE;
+		event_base_loopbreak(ev_base);
+	}
+}
+
 static void report_login(struct conn_data *conn_data, uint8_t *param, size_t param_len) {
+	if (check_serv_data(conn_data->user, conn_data->user_len) ||
+		check_serv_data(param, param_len)) {
+		report_invalid(conn_data);
+		return;
+	}
 	struct uint8_t_pair data[] = {
 		{LOGIN_USER, strlen(LOGIN_USER), conn_data->user, conn_data->user_len},
 		// we don't need store password for reporting - it is command buffer
@@ -248,21 +268,6 @@ static void report_login(struct conn_data *conn_data, uint8_t *param, size_t par
 	msg.data_len = sizeof(data) / sizeof(*data);
 	if (proxy_report(report_fd, &msg) !=0) {
 		DEBUG_PRINT("ftp - error - couldn't report login\n");
-		exit_code = EXIT_FAILURE;
-		event_base_loopbreak(ev_base);
-	}
-}
-
-static void report_invalid(struct conn_data *conn_data) {
-	struct proxy_msg msg;
-	msg.ts = time(NULL);
-	msg.type = TYPE;
-	msg.ip = conn_data->ipaddr_str;
-	msg.action = INVALID_EV;
-	msg.data = NULL;
-	msg.data_len = 0;
-	if (proxy_report(report_fd, &msg) !=0) {
-		DEBUG_PRINT("ftp - error - couldn't report invalid\n");
 		exit_code = EXIT_FAILURE;
 		event_base_loopbreak(ev_base);
 	}
