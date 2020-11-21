@@ -21,6 +21,9 @@ if __name__ == "__main__":
     Test("login_test_3", log_dir, proxy_sock, [(t.login_test3, host, port)]).run()
     Test("login_test_4", log_dir, proxy_sock, [(t.login_test4, host, port)]).run()
     Test("login_test_5", log_dir, proxy_sock, [(t.login_test5, host, port)]).run()
+    Test("login_test_6", log_dir, proxy_sock, [(t.login_test6, host, port)]).run()
+    Test("login_test_7", log_dir, proxy_sock, [(t.login_test7, host, port)]).run()
+    Test("login_test_8", log_dir, proxy_sock, [(t.login_test8, host, port)]).run()
     Test("brute_force_test_1", log_dir, proxy_sock, [(t.bruteforce_test, host, port)]).run()
     Test("multiple_brute_force_test_1", log_dir, proxy_sock, [(t.bruteforce_test, host, port),
          (t.bruteforce_test, host, port), (t.bruteforce_test, host, port),
