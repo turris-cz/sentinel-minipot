@@ -54,7 +54,9 @@ if __name__ == "__main__":
     Test("auth_header_test7", log_dir, proxy_sock, [(h.auth_header_test7, host, port)]).run()
     Test("auth_header_test8", log_dir, proxy_sock, [(h.auth_header_test8, host, port)]).run()
     Test("auth_header_test9", log_dir, proxy_sock, [(h.auth_header_test9, host, port)]).run()
-
+    Test("auth_header_test10", log_dir, proxy_sock, [(h.auth_header_test10, host, port)]).run()
+    Test("auth_header_test11", log_dir, proxy_sock, [(h.auth_header_test11, host, port)]).run()
+    Test("auth_header_test12", log_dir, proxy_sock, [(h.auth_header_test12, host, port)]).run()
     Test("brute_force_test1", log_dir, proxy_sock, [(h.brute_force_test1, host, port)]).run()
 
     Test("con_len_head_test1", log_dir, proxy_sock, [(h.con_len_head_test1, host, port)]).run()
