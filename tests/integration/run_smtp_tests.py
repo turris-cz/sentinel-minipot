@@ -137,6 +137,12 @@ if __name__ == "__main__":
          [(s.auth_cmd_helo_sent_init_resp_test16, host, port)]).run()
     Test("auth_cmd_helo_sent_init_resp_test_17", log_dir,  proxy_sock,
          [(s.auth_cmd_helo_sent_init_resp_test17, host, port)]).run()
+    Test("auth_cmd_helo_sent_init_resp_test_18", log_dir,  proxy_sock,
+         [(s.auth_cmd_helo_sent_init_resp_test17, host, port)]).run()
+    Test("auth_cmd_helo_sent_init_resp_test_19", log_dir,  proxy_sock,
+         [(s.auth_cmd_helo_sent_init_resp_test17, host, port)]).run()
+    Test("auth_cmd_helo_sent_init_resp_test_20", log_dir,  proxy_sock,
+         [(s.auth_cmd_helo_sent_init_resp_test17, host, port)]).run()
 
     Test("auth_cmd_helo_sent_too_much_param_test_1", log_dir,  proxy_sock,
          [(s.auth_cmd_helo_sent_too_much_param_test1, host, port)]).run()
@@ -156,6 +162,9 @@ if __name__ == "__main__":
     Test("expect_plain_data_test_11", log_dir,  proxy_sock, [(s.expect_plain_data_test11, host, port)]).run()
     Test("expect_plain_data_test_12", log_dir,  proxy_sock, [(s.expect_plain_data_test12, host, port)]).run()
     Test("expect_plain_data_test_13", log_dir,  proxy_sock, [(s.expect_plain_data_test13, host, port)]).run()
+    Test("expect_plain_data_test_14", log_dir,  proxy_sock, [(s.expect_plain_data_test14, host, port)]).run()
+    Test("expect_plain_data_test_15", log_dir,  proxy_sock, [(s.expect_plain_data_test15, host, port)]).run()
+    Test("expect_plain_data_test_16", log_dir,  proxy_sock, [(s.expect_plain_data_test16, host, port)]).run()
 
     Test("expect_login_user_test_1", log_dir,  proxy_sock, [(s.expect_login_user_test1, host, port)]).run()
     Test("expect_login_user_test_2", log_dir,  proxy_sock, [(s.expect_login_user_test2, host, port)]).run()
@@ -166,6 +175,9 @@ if __name__ == "__main__":
     Test("expect_login_passw_test_2", log_dir,  proxy_sock, [(s.expect_login_passw_test2, host, port)]).run()
     Test("expect_login_passw_test_3", log_dir,  proxy_sock, [(s.expect_login_passw_test3, host, port)]).run()
     Test("expect_login_passw_test_4", log_dir,  proxy_sock, [(s.expect_login_passw_test4, host, port)]).run()
+    Test("expect_login_passw_test_5", log_dir,  proxy_sock, [(s.expect_login_passw_test5, host, port)]).run()
+    Test("expect_login_passw_test_6", log_dir,  proxy_sock, [(s.expect_login_passw_test6, host, port)]).run()
+    Test("expect_login_passw_test_7", log_dir,  proxy_sock, [(s.expect_login_passw_test7, host, port)]).run()
 
     Test("plain_init_brute_force", log_dir,  proxy_sock, [(s.plain_init_brute_force, host, port)]).run()
     Test("plain_brute_force", log_dir,  proxy_sock, [(s.plain_brute_force, host, port)]).run()
