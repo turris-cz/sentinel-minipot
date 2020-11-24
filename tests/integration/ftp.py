@@ -1,6 +1,6 @@
 from random import randint
 
-from framework.utils import get_ip_addr, recv_from_sock, gen_rand_bytes_w10
+from framework.utils import get_ip_addr, recv_from_sock, gen_rand_utf8_string, gen_rand_bytes_w10
 from framework.proxy import gen_proxy_report
 
 
@@ -87,6 +87,28 @@ def gen_cmd(keyword, param=b""):
         keyword: bytes
         param: bytes """
     return keyword + b" " + param + LF
+
+
+def gen_username(len):
+    """ Returns UTF-8 byte string generated randomly without byte values 0 and 10.
+
+    Parameters:
+        len: int """
+    ret = gen_rand_utf8_string(len)
+    ret = ret.replace(b"\x0a", bytes([randint(14, 127)]))
+    ret = ret.replace(b"\x00", bytes([randint(14, 127)]))
+    return ret
+
+
+def gen_password(len):
+    """ Returns UTF-8 byte string generated randomly without byte values 0 and 10.
+
+    Parameters:
+        len: int """
+    ret = gen_rand_utf8_string(len)
+    ret = ret.replace(b"\x0a", bytes([randint(14, 127)]))
+    ret = ret.replace(b"\x00", bytes([randint(14, 127)]))
+    return ret
 
 
 ################################################################################
@@ -222,7 +244,7 @@ def user_cmd_test3(server_sock):
     exception if communication with minipot went wrong. """
     response = recv_from_sock(server_sock)
     assert response == MINIPOT_WELOME_RESP
-    user = gen_rand_bytes_w10(1)
+    user = gen_username(1)
     cmd = gen_cmd(USER, user)
     server_sock.sendall(cmd)
     response = recv_from_sock(server_sock)
@@ -246,7 +268,7 @@ def user_cmd_test4(server_sock):
     exception if communication with minipot went wrong. """
     response = recv_from_sock(server_sock)
     assert response == MINIPOT_WELOME_RESP
-    user = gen_rand_bytes_w10(4090)
+    user = gen_username(1020)
     cmd = gen_cmd(USER, user)
     server_sock.sendall(cmd)
     response = recv_from_sock(server_sock)
@@ -332,7 +354,7 @@ def pass_cmd_test3(server_sock):
     server_sock.sendall(USER_EMPTY_CMD)
     response = recv_from_sock(server_sock)
     assert response == MINIPOT_USER_RESP
-    passw = gen_rand_bytes_w10(1)
+    passw = gen_password(1)
     cmd = gen_cmd(PASS, passw)
     server_sock.sendall(cmd)
     response = recv_from_sock(server_sock)
@@ -362,7 +384,7 @@ def pass_cmd_test4(server_sock):
     server_sock.sendall(USER_EMPTY_CMD)
     response = recv_from_sock(server_sock)
     assert response == MINIPOT_USER_RESP
-    passw = gen_rand_bytes_w10(4090)
+    passw = gen_password(1020)
     cmd = gen_cmd(PASS, passw)
     server_sock.sendall(cmd)
     response = recv_from_sock(server_sock)
@@ -448,7 +470,7 @@ def pass_cmd_test7(server_sock):
     server_sock.sendall(gen_cmd(USER))
     response = recv_from_sock(server_sock)
     assert response == MINIPOT_USER_RESP
-    passw = gen_rand_bytes_w10(1)
+    passw = gen_password(1)
     cmd = gen_cmd(PASS, passw)
     server_sock.sendall(cmd)
     response = recv_from_sock(server_sock)
@@ -478,7 +500,7 @@ def pass_cmd_test8(server_sock):
     server_sock.sendall(gen_cmd(USER))
     response = recv_from_sock(server_sock)
     assert response == MINIPOT_USER_RESP
-    passw = gen_rand_bytes_w10(4090)
+    passw = gen_password(1020)
     cmd = gen_cmd(PASS, passw)
     server_sock.sendall(cmd)
     response = recv_from_sock(server_sock)
@@ -505,7 +527,7 @@ def pass_cmd_test9(server_sock):
     exception if communication with minipot went wrong. """
     response = recv_from_sock(server_sock)
     assert response == MINIPOT_WELOME_RESP
-    user = gen_rand_bytes_w10(1)
+    user = gen_username(1)
     cmd = gen_cmd(USER, user)
     server_sock.sendall(cmd)
     response = recv_from_sock(server_sock)
@@ -535,7 +557,7 @@ def pass_cmd_test10(server_sock):
     exception if communication with minipot went wrong. """
     response = recv_from_sock(server_sock)
     assert response == MINIPOT_WELOME_RESP
-    user = gen_rand_bytes_w10(1)
+    user = gen_username(1)
     cmd = gen_cmd(USER, user)
     server_sock.sendall(cmd)
     response = recv_from_sock(server_sock)
@@ -564,12 +586,12 @@ def pass_cmd_test11(server_sock):
     exception if communication with minipot went wrong. """
     response = recv_from_sock(server_sock)
     assert response == MINIPOT_WELOME_RESP
-    user = gen_rand_bytes_w10(1)
+    user = gen_username(1)
     cmd = gen_cmd(USER, user)
     server_sock.sendall(cmd)
     response = recv_from_sock(server_sock)
     assert response == MINIPOT_USER_RESP
-    passw = gen_rand_bytes_w10(1)
+    passw = gen_password(1)
     cmd = gen_cmd(PASS, passw)
     server_sock.sendall(cmd)
     response = recv_from_sock(server_sock)
@@ -597,12 +619,12 @@ def pass_cmd_test12(server_sock):
     exception if communication with minipot went wrong. """
     response = recv_from_sock(server_sock)
     assert response == MINIPOT_WELOME_RESP
-    user = gen_rand_bytes_w10(1)
+    user = gen_username(1)
     cmd = gen_cmd(USER, user)
     server_sock.sendall(cmd)
     response = recv_from_sock(server_sock)
     assert response == MINIPOT_USER_RESP
-    passw = gen_rand_bytes_w10(4090)
+    passw = gen_password(1020)
     cmd = gen_cmd(PASS, passw)
     server_sock.sendall(cmd)
     response = recv_from_sock(server_sock)
@@ -630,7 +652,7 @@ def pass_cmd_test13(server_sock):
     exception if communication with minipot went wrong. """
     response = recv_from_sock(server_sock)
     assert response == MINIPOT_WELOME_RESP
-    user = gen_rand_bytes_w10(4090)
+    user = gen_username(1020)
     cmd = gen_cmd(USER, user)
     server_sock.sendall(cmd)
     response = recv_from_sock(server_sock)
@@ -660,7 +682,7 @@ def pass_cmd_test14(server_sock):
     exception if communication with minipot went wrong. """
     response = recv_from_sock(server_sock)
     assert response == MINIPOT_WELOME_RESP
-    user = gen_rand_bytes_w10(4090)
+    user = gen_username(1020)
     cmd = gen_cmd(USER, user)
     server_sock.sendall(cmd)
     response = recv_from_sock(server_sock)
@@ -691,12 +713,12 @@ def pass_cmd_test15(server_sock):
     exception if communication with minipot went wrong. """
     response = recv_from_sock(server_sock)
     assert response == MINIPOT_WELOME_RESP
-    user = gen_rand_bytes_w10(4090)
+    user = gen_username(1020)
     cmd = gen_cmd(USER, user)
     server_sock.sendall(cmd)
     response = recv_from_sock(server_sock)
     assert response == MINIPOT_USER_RESP
-    passw = gen_rand_bytes_w10(1)
+    passw = gen_password(1)
     cmd = gen_cmd(PASS, passw)
     server_sock.sendall(cmd)
     response = recv_from_sock(server_sock)
@@ -724,18 +746,114 @@ def pass_cmd_test16(server_sock):
     exception if communication with minipot went wrong. """
     response = recv_from_sock(server_sock)
     assert response == MINIPOT_WELOME_RESP
-    user = gen_rand_bytes_w10(4090)
+    user = gen_username(1020)
     cmd = gen_cmd(USER, user)
     server_sock.sendall(cmd)
     response = recv_from_sock(server_sock)
     assert response == MINIPOT_USER_RESP
-    passw = gen_rand_bytes_w10(4090)
+    passw = gen_password(1020)
     cmd = gen_cmd(PASS, passw)
     server_sock.sendall(cmd)
     response = recv_from_sock(server_sock)
     assert response == MINIPOT_PASS_530_RESP
     return [gen_connect_report(server_sock),
             gen_login_report(server_sock, user=user, password=passw)]
+
+
+def username_utf8_test1(server_sock):
+    """ Sends to Minipots:
+        user command with invalid utf-8 parameter
+        pass command with valid utf-8 parameter
+    Required response from Minipots':
+        MINIPOT_WELCOME_RESP
+        MINIPOT_USER_RESP
+        MINIPOT_PASS_530_RESP
+    Required Minipots generated Sentinel message:
+        connect
+        invalid
+    More description:
+
+    Parameters:
+        server_sock: socket
+    Returns list of dictionaries - generated proxy reports or assert
+    exception if communication with minipot went wrong. """
+    response = recv_from_sock(server_sock)
+    assert response == MINIPOT_WELOME_RESP
+    user = gen_username(1020) + b"\xff"
+    cmd = gen_cmd(USER, user)
+    server_sock.sendall(cmd)
+    response = recv_from_sock(server_sock)
+    assert response == MINIPOT_USER_RESP
+    passw = gen_password(1020)
+    cmd = gen_cmd(PASS, passw)
+    server_sock.sendall(cmd)
+    response = recv_from_sock(server_sock)
+    assert response == MINIPOT_PASS_530_RESP
+    return [gen_connect_report(server_sock), gen_invalid_report(server_sock)]
+
+
+def password_utf8_test1(server_sock):
+    """ Sends to Minipots:
+        user command with valid utf-8 parameter
+        pass command with invalid utf-8 parameter
+    Required response from Minipots':
+        MINIPOT_WELCOME_RESP
+        MINIPOT_USER_RESP
+        MINIPOT_PASS_530_RESP
+    Required Minipots generated Sentinel message:
+        connect
+        invalid
+    More description:
+
+    Parameters:
+        server_sock: socket
+    Returns list of dictionaries - generated proxy reports or assert
+    exception if communication with minipot went wrong. """
+    response = recv_from_sock(server_sock)
+    assert response == MINIPOT_WELOME_RESP
+    user = gen_username(1020)
+    cmd = gen_cmd(USER, user)
+    server_sock.sendall(cmd)
+    response = recv_from_sock(server_sock)
+    assert response == MINIPOT_USER_RESP
+    passw = gen_password(1020) + b"\xf5"
+    cmd = gen_cmd(PASS, passw)
+    server_sock.sendall(cmd)
+    response = recv_from_sock(server_sock)
+    assert response == MINIPOT_PASS_530_RESP
+    return [gen_connect_report(server_sock), gen_invalid_report(server_sock)]
+
+
+def user_passw_utf8_test1(server_sock):
+    """ Sends to Minipots:
+        user command with invalid utf-8 parameter
+        pass command with invalid utf-8 parameter
+    Required response from Minipots':
+        MINIPOT_WELCOME_RESP
+        MINIPOT_USER_RESP
+        MINIPOT_PASS_530_RESP
+    Required Minipots generated Sentinel message:
+        connect
+        invalid
+    More description:
+
+    Parameters:
+        server_sock: socket
+    Returns list of dictionaries - generated proxy reports or assert
+    exception if communication with minipot went wrong. """
+    response = recv_from_sock(server_sock)
+    assert response == MINIPOT_WELOME_RESP
+    user = gen_username(1020) + b"\xf6"
+    cmd = gen_cmd(USER, user)
+    server_sock.sendall(cmd)
+    response = recv_from_sock(server_sock)
+    assert response == MINIPOT_USER_RESP
+    passw = gen_password(1020) + b"\xf5"
+    cmd = gen_cmd(PASS, passw)
+    server_sock.sendall(cmd)
+    response = recv_from_sock(server_sock)
+    assert response == MINIPOT_PASS_530_RESP
+    return [gen_connect_report(server_sock), gen_invalid_report(server_sock)]
 
 
 def quit_cmd_test1(server_sock):
@@ -1172,12 +1290,12 @@ def brute_force_handler(server_sock):
     response = recv_from_sock(server_sock)
     assert response == MINIPOT_WELOME_RESP
     for _ in range(MINIPOT_LOG_ATMPS_CNT):
-        user = gen_rand_bytes_w10(randint(1, 4090))
+        user = gen_username(randint(1, 1020))
         cmd = gen_cmd(USER, user)
         server_sock.sendall(cmd)
         response = recv_from_sock(server_sock)
         assert response == MINIPOT_USER_RESP
-        passw = gen_rand_bytes_w10(randint(0, 4090))
+        passw = gen_password(randint(0, 1020))
         cmd = gen_cmd(PASS, passw)
         server_sock.sendall(cmd)
         response = recv_from_sock(server_sock)

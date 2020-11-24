@@ -45,6 +45,11 @@ if __name__ == "__main__":
     Test("pass_cmd_test_15", log_dir, proxy_sock, [(f.pass_cmd_test11, host, port)]).run()
     Test("pass_cmd_test_16", log_dir, proxy_sock, [(f.pass_cmd_test16, host, port)]).run()
 
+    Test("username_utf8_test1", log_dir, proxy_sock, [(f.username_utf8_test1, host, port)]).run()
+    Test("password_utf8_test1", log_dir, proxy_sock, [(f.password_utf8_test1, host, port)]).run()
+
+    Test("user_passw_utf8_test1", log_dir, proxy_sock, [(f.user_passw_utf8_test1, host, port)]).run()
+
     Test("quit_cmd_test_1", log_dir, proxy_sock, [(f.quit_cmd_test1, host, port)]).run()
     Test("quit_cmd_test_2", log_dir, proxy_sock, [(f.quit_cmd_test2, host, port)]).run()
     Test("quit_cmd_test_3", log_dir, proxy_sock, [(f.quit_cmd_test3, host, port)]).run()
