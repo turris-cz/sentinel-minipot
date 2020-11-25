@@ -1,7 +1,6 @@
 bin_PROGRAMS = sentinel-minipot
 
-sentinel_minipot_SOURCES = \
-	main.c \
+minipot_sources = \
 	master_pipe.c \
 	utils.c \
 	telnet.c \
@@ -12,17 +11,20 @@ sentinel_minipot_SOURCES = \
 	minipot_pipe.c \
 	child.c
 
+sentinel_minipot_SOURCES = \
+	main.c \
+	${minipot_sources}
+
 sentinel_minipot_CFLAGS = \
 	${czmq_CFLAGS} \
-	${libevent_CFLAGS} \
 	${msgpack_CFLAGS} \
-	${base64c_CFLAGS} \
-	-std=c99
+	${libevent_CFLAGS} \
+	${base64c_CFLAGS}
 
 sentinel_minipot_LDADD = \
 	${czmq_LIBS} \
-	${libevent_LIBS} \
 	${msgpack_LIBS} \
+	${libevent_LIBS} \
 	${base64c_LIBS}
 
 
@@ -32,15 +34,13 @@ gperf_files =  \
 	ftp_commands.gperf.c \
 	smtp_commands.gperf.c \
 	sasl_mechanisms.gperf.c
+$(sentinel_minipot_OBJECTS): $(gperf_files)
+include $(srcdir)/gperf.am
 
-sentinel_minipot-http.$(OBJEXT): http_header.gperf.c http_tr_enc.gperf.c
-sentinel_minipot-ftp.$(OBJEXT): ftp_commands.gperf.c
-sentinel_minipot-smtp.$(OBJEXT): smtp_commands.gperf.c sasl_mechanisms.gperf.c
 
-%.gperf.c: %.gperf
-	$(GPERF) --output-file=$@ $<
+if ENABLE_LINTERS
+linted_files = $(sentinel_minipot_SOURCES)
+include $(srcdir)/lint.am
+endif
 
-CLEANFILES = $(gperf_files)
-
-.PHONY: gen-gperf
-gen-gperf: $(gperf_files)
+include $(srcdir)/tests/Makefile.am

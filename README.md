@@ -20,7 +20,7 @@ C99 compliant compiler is needed.
 
 In main project folder run:
 
-- `autoreconf`
+- `./bootstrap`
 - `./configure`
 - `make`
 

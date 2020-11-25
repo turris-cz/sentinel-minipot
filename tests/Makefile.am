@@ -1,0 +1,34 @@
+TESTS =
+check_PROGRAMS =
+
+if ENABLE_TESTS
+include $(srcdir)/%reldir%/unit/Makefile.am
+endif
+
+
+LOG_DRIVER = \
+	env AM_TAP_AWK='$(AWK)' TEST_OUTPUT_TAP="/dev/stdout" \
+	'$(SHELL)' '$(srcdir)/.aux/tap-driver.sh'
+
+# Valgrind #######################################################################
+VALGRIND_memcheck_FLAGS = \
+	--leak-check=full \
+	--show-leak-kinds=definite,indirect,possible \
+	--track-fds=yes \
+	--track-origins=yes \
+	--trace-children=no \
+	--child-silent-after-fork=yes
+@VALGRIND_CHECK_RULES@
+
+# Rules generated for valgrind are for some reason called *-am. This is just an alias
+check-valgrind: check-valgrind-am
+define check_valgrind_rule
+check-valgrind-$(1): check-valgrind-$(1)-am
+endef
+$(foreach tool,$(valgrind_tools),$(eval $(call check_valgrind_rule,$(tool))))
+
+# Coverage #######################################################################
+include $(srcdir)/aminclude_static.am
+
+clean-local: code-coverage-clean
+distclean-local: code-coverage-dist-clean
