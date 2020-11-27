@@ -4,27 +4,51 @@ It emulates Telnet, HTTP, FTP and SMTP network services. Main purpose of the Sen
 Recorded events of peer connection and authentication are logged to Sentinel proxy.
 
 ## Dependencies
-libraries
  - czmq
  - libevent
  - libmsgpack
- - argp
- - base64c (https://gitlab.nic.cz/turris/base64c)
+ - [base64c](https://gitlab.nic.cz/turris/base64c)
 
-compilation tools
+for non glibc:
+ - [argp-standalone](http://www.lysator.liu.se/~nisse/misc/)
+
+compilation tools:
  - gperf - a perfect hash function generator
 
-## Compilation
+For bootstrap (not release tarballs):
+- autotools
+- autoconf-archive
+
+For tests:
+- [check](https://libcheck.github.io/check)
+-  Optionally [valgrind](http://www.valgrind.org)
+
+
+## Compilation and tests
 GNU Autotools are used for building executable file from the source code.
 C99 compliant compiler is needed.
 
 In main project folder run:
 
-- `./bootstrap`
-- `./configure`
-- `make`
+```
+./bootstrap
+./configure
+make
+```
 
-### Program arguments
+To enable tests run:  
+```./bootstrap --enable-tests```
+
+To run tests:
+```make ckeck```
+
+To run tests with valgrind:
+```make check-valgrind```
+
+To run tests with just one specific Valgrind test such as memtest you can run:
+``` make check-valgrind-memcheck ```
+
+## Program arguments
 
 optional - these arguments has a default values in case their value is not given by input arguments.
 
@@ -43,8 +67,8 @@ Several instances of same service minipot - child process can run together. Of c
 
 E.g. for running HTTP minipot on port 9000, FTP minipot on port 9001 and SMTP minipot on port 9002 run:
 
-`./sentinel_minipot -H 9000 -F 9001 -S 9002`
+```./sentinel_minipot -H 9000 -F 9001 -S 9002```
 
 
-### More info
+## More info
 For more information about Sentinel-minipot see `doc` folder. More information about tests see `README` and `doc` in `tests/integration` and `README` in `tests/manual`.
