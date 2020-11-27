@@ -3,11 +3,11 @@
 #include <stdio.h>
 #include <stdbool.h>
 
-void suite_utils(SRunner*);
+void suite_check_serv_data(SRunner*);
 
 int main(void) {
 	SRunner *runner = srunner_create(NULL);
-	suite_utils(runner);
+	suite_check_serv_data(runner);
 
 	char *test_output_tap = getenv("TEST_OUTPUT_TAP");
 	if (test_output_tap && *test_output_tap != '\0')

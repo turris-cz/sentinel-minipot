@@ -3,8 +3,8 @@ TESTS += %reldir%/tests
 check_PROGRAMS = %reldir%/tests
 %canon_reldir%_tests_SOURCES = \
 	$(minipot_sources) \
-	%reldir%/tests.c \
-	%reldir%/utils.c
+	%reldir%/unit_tests.c \
+	%reldir%/check_serv_data.c
 %canon_reldir%_tests_CFLAGS = \
 	$(sentinel_minipot_CFLAGS) \
 	$(CHECK_FLAGS)
