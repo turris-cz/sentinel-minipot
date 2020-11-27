@@ -81,6 +81,6 @@ size_t tokenize(uint8_t *str, size_t str_len, struct token *tokens, size_t token
 void ev_base_discard_cb(int severity, const char *msg);
 void concat_mesg(char **buff, size_t args_num, ...);
 void on_sigint(evutil_socket_t sig, short events, void *user_data);
-int check_serv_data(uint8_t *buff, size_t len);
+int check_serv_data(const uint8_t *buff, size_t len);
 
 #endif /*__SENTINEL_MINIPOT_UTILS_H__*/

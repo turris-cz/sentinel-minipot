@@ -194,7 +194,7 @@ void concat_mesg(char **buff, size_t args_num, ...) {
  * If data represents UTF-8 string and do NOT contain NULL byte(s) it returns 0
  * otherwise -1 is returned.
  */
-int check_serv_data(uint8_t *buff, size_t len) {
+int check_serv_data(const uint8_t *buff, size_t len) {
 	DEBUG_PRINT("utils - check_serv_data\n");
 	enum state{S0, S1, S2, S3, S4, S5, S6, S7} state = S0;
 	for (size_t i = 0; i < len; i++) {
