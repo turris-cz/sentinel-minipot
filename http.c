@@ -386,34 +386,36 @@ static int send_unauth(struct conn_data *conn_data) {
 		} \
 	} while (0)
 
-static void report_connect(struct conn_data *conn_data) {
-	struct proxy_msg msg;
-	msg.ts = time(NULL);
-	msg.type = TYPE;
-	msg.ip = conn_data->ipaddr_str;
-	msg.action = CONNECT_EV;
-	msg.data = NULL;
-	msg.data_len = 0;
-	if (proxy_report(report_fd, &msg) !=0) {
-		DEBUG_PRINT("http - error - couldn't report connect\n");
+static inline void report(struct proxy_msg *proxy_msg, const char *err_msg) {
+	if (proxy_report(report_fd, proxy_msg) !=0) {
+		DEBUG_PRINT(err_msg);
 		exit_code = EXIT_FAILURE;
 		event_base_loopbreak(ev_base);
 	}
+};
+
+static void report_connect(struct conn_data *conn_data) {
+	struct proxy_msg msg = {
+		.ts = time(NULL),
+		.type = TYPE,
+		.ip = conn_data->ipaddr_str,
+		.action = CONNECT_EV,
+		.data = NULL,
+		.data_len = 0,
+	};
+	report(&msg, "http - error - couldn't report connect\n");
 }
 
 static void report_invalid(struct conn_data *conn_data) {
-	struct proxy_msg msg;
-	msg.ts = time(NULL);
-	msg.type = TYPE;
-	msg.ip = conn_data->ipaddr_str;
-	msg.action = INVALID_EV;
-	msg.data = NULL;
-	msg.data_len = 0;
-	if (proxy_report(report_fd, &msg) !=0) {
-		DEBUG_PRINT("http - error - couldn't report invalid\n");
-		exit_code = EXIT_FAILURE;
-		event_base_loopbreak(ev_base);
-	}
+	struct proxy_msg msg = {
+		.ts = time(NULL),
+		.type = TYPE,
+		.ip = conn_data->ipaddr_str,
+		.action = INVALID_EV,
+		.data = NULL,
+		.data_len = 0,
+	};
+	report(&msg, "http - error - couldn't report invalid\n");
 }
 
 static void report_message(struct conn_data *conn_data) {
@@ -427,18 +429,15 @@ static void report_message(struct conn_data *conn_data) {
 		{URL, strlen(URL), conn_data->url, conn_data->url_len},
 		{USER_AG, strlen(USER_AG), conn_data->user_ag, conn_data->user_ag_len},
 	};
-	struct proxy_msg msg;
-	msg.ts = time(NULL);
-	msg.type = TYPE;
-	msg.ip = conn_data->ipaddr_str;
-	msg.action = MSG_EV;
-	msg.data = data;
-	msg.data_len = sizeof(data) / sizeof(*data);
-	if (proxy_report(report_fd, &msg) !=0) {
-		DEBUG_PRINT("http - error - couldn't report message\n");
-		exit_code = EXIT_FAILURE;
-		event_base_loopbreak(ev_base);
-	}
+	struct proxy_msg msg = {
+		.ts = time(NULL),
+		.type = TYPE,
+		.ip = conn_data->ipaddr_str,
+		.action = MSG_EV,
+		.data = data,
+		.data_len = sizeof(data) / sizeof(*data),
+	};
+	report(&msg, "http - error - couldn't report message\n");
 }
 
 static void report_login(struct conn_data *conn_data, char *username, size_t username_len,
@@ -457,18 +456,15 @@ static void report_login(struct conn_data *conn_data, char *username, size_t use
 		{USERNAME, strlen(USERNAME), username, username_len},
 		{PASSWORD, strlen(PASSWORD), password, password_len},
 	};
-	struct proxy_msg msg;
-	msg.ts = time(NULL);
-	msg.type = TYPE;
-	msg.ip = conn_data->ipaddr_str;
-	msg.action = LOGIN_EV;
-	msg.data = data;
-	msg.data_len = sizeof(data) / sizeof(*data);
-	if (proxy_report(report_fd, &msg) !=0) {
-		DEBUG_PRINT("http - error - couldn't report login\n");
-		exit_code = EXIT_FAILURE;
-		event_base_loopbreak(ev_base);
-	}
+	struct proxy_msg msg = {
+		.ts = time(NULL),
+		.type = TYPE,
+		.ip = conn_data->ipaddr_str,
+		.action = LOGIN_EV,
+		.data = data,
+		.data_len = sizeof(data) / sizeof(*data),
+	};
+	report(&msg, "http - error - couldn't report login\n");
 }
 
 /*
