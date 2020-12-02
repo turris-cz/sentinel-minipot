@@ -335,34 +335,36 @@ static inline int send_and_err_incr(struct conn_data *conn_data, char *mesg) {
 	return error_incr(conn_data);
 }
 
-static void report_connect(struct conn_data *conn_data) {
-	struct proxy_msg msg;
-	msg.ts = time(NULL);
-	msg.type = TYPE;
-	msg.ip = conn_data->ipaddr_str;
-	msg.action = CONNECT_EV;
-	msg.data = NULL;
-	msg.data_len = 0;
-	if (proxy_report(report_fd, &msg) !=0) {
-		DEBUG_PRINT("smtp - error - couldn't report connect\n");
+static inline void report(struct proxy_msg *proxy_msg, const char *err_msg) {
+	if (proxy_report(report_fd, proxy_msg) !=0) {
+		DEBUG_PRINT(err_msg);
 		exit_code = EXIT_FAILURE;
 		event_base_loopbreak(ev_base);
 	}
+};
+
+static void report_connect(struct conn_data *conn_data) {
+	struct proxy_msg msg = {
+		.ts = time(NULL),
+		.type = TYPE,
+		.ip = conn_data->ipaddr_str,
+		.action = CONNECT_EV,
+		.data = NULL,
+		.data_len = 0,
+	};
+	report(&msg, "smtp - error - couldn't report connect\n");
 }
 
 static void report_invalid(struct conn_data *conn_data) {
-	struct proxy_msg msg;
-	msg.ts = time(NULL);
-	msg.type = TYPE;
-	msg.ip = conn_data->ipaddr_str;
-	msg.action = INVALID_EV;
-	msg.data = NULL;
-	msg.data_len = 0;
-	if (proxy_report(report_fd, &msg) !=0) {
-		DEBUG_PRINT("smtp - error - couldn't report invalid\n");
-		exit_code = EXIT_FAILURE;
-		event_base_loopbreak(ev_base);
-	}
+	struct proxy_msg msg = {
+		.ts = time(NULL),
+		.type = TYPE,
+		.ip = conn_data->ipaddr_str,
+		.action = INVALID_EV,
+		.data = NULL,
+		.data_len = 0,
+	};
+	report(&msg, "smtp - error - couldn't report invalid\n");
 }
 
 static void report_login_login(struct conn_data *conn_data) {
@@ -377,18 +379,15 @@ static void report_login_login(struct conn_data *conn_data) {
 		{LOGIN_PASS, strlen(LOGIN_PASS), dcode_buff, dcoded_data_len},
 		{SASL_MECH, strlen(SASL_MECH), SASL_LOGIN, strlen(SASL_LOGIN)},
 	};
-	struct proxy_msg msg;
-	msg.ts = time(NULL);
-	msg.type = TYPE;
-	msg.ip = conn_data->ipaddr_str;
-	msg.data = data;
-	msg.action = LOGIN_EV;
-	msg.data_len = sizeof(data) / sizeof(*data);
-	if (proxy_report(report_fd, &msg) !=0) {
-		DEBUG_PRINT("smtp - error - couldn't report login login\n");
-		exit_code = EXIT_FAILURE;
-		event_base_loopbreak(ev_base);
-	}
+	struct proxy_msg msg = {
+		.ts = time(NULL),
+		.type = TYPE,
+		.ip = conn_data->ipaddr_str,
+		.data = data,
+		.action = LOGIN_EV,
+		.data_len = sizeof(data) / sizeof(*data),
+	};
+	report(&msg, "smtp - error - couldn't report login login\n");
 }
 
 static void report_login_plain(struct conn_data *conn_data) {
@@ -414,18 +413,15 @@ static void report_login_plain(struct conn_data *conn_data) {
 		{LOGIN_PASS, strlen(LOGIN_PASS), password, password_len},
 		{SASL_MECH, strlen(SASL_MECH), SASL_PLAIN, strlen(SASL_PLAIN)},
 	};
-	struct proxy_msg msg;
-	msg.ts = time(NULL);
-	msg.type = TYPE;
-	msg.ip = conn_data->ipaddr_str;
-	msg.data = data;
-	msg.action = LOGIN_EV;
-	msg.data_len = sizeof(data) / sizeof(*data);
-	if (proxy_report(report_fd, &msg) !=0) {
-		DEBUG_PRINT("smtp - error - couldn't report login plain\n");
-		exit_code = EXIT_FAILURE;
-		event_base_loopbreak(ev_base);
-	}
+	struct proxy_msg msg = {
+		.ts = time(NULL),
+		.type = TYPE,
+		.ip = conn_data->ipaddr_str,
+		.data = data,
+		.action = LOGIN_EV,
+		.data_len = sizeof(data) / sizeof(*data),
+	};
+	report(&msg, "smtp - error - couldn't report login plain\n");
 	return;
 	err:
 	report_invalid(conn_data);
