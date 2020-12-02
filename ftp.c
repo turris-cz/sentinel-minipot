@@ -233,19 +233,24 @@ static inline int send_resp(struct conn_data *conn_data, char *mesg) {
 	}
 }
 
-static void report_invalid(struct conn_data *conn_data) {
-	struct proxy_msg msg;
-	msg.ts = time(NULL);
-	msg.type = TYPE;
-	msg.ip = conn_data->ipaddr_str;
-	msg.action = INVALID_EV;
-	msg.data = NULL;
-	msg.data_len = 0;
-	if (proxy_report(report_fd, &msg) !=0) {
-		DEBUG_PRINT("ftp - error - couldn't report invalid\n");
+static inline void report(struct proxy_msg *proxy_msg, const char *err_msg) {
+	if (proxy_report(report_fd, proxy_msg) !=0) {
+		DEBUG_PRINT(err_msg);
 		exit_code = EXIT_FAILURE;
 		event_base_loopbreak(ev_base);
 	}
+};
+
+static void report_invalid(struct conn_data *conn_data) {
+	struct proxy_msg msg = {
+		.ts = time(NULL),
+		.type = TYPE,
+		.ip = conn_data->ipaddr_str,
+		.action = INVALID_EV,
+		.data = NULL,
+		.data_len = 0,
+	};
+	report(&msg, "ftp - error - couldn't report invalid\n");
 }
 
 static void report_login(struct conn_data *conn_data, uint8_t *param, size_t param_len) {
@@ -259,33 +264,27 @@ static void report_login(struct conn_data *conn_data, uint8_t *param, size_t par
 		// we don't need store password for reporting - it is command buffer
 		{LOGIN_PASS, strlen(LOGIN_PASS), param, param_len},
 	};
-	struct proxy_msg msg;
-	msg.ts = time(NULL);
-	msg.type = TYPE;
-	msg.ip = conn_data->ipaddr_str;
-	msg.action = LOGIN_EV;
-	msg.data = data;
-	msg.data_len = sizeof(data) / sizeof(*data);
-	if (proxy_report(report_fd, &msg) !=0) {
-		DEBUG_PRINT("ftp - error - couldn't report login\n");
-		exit_code = EXIT_FAILURE;
-		event_base_loopbreak(ev_base);
-	}
+	struct proxy_msg msg = {
+		.ts = time(NULL),
+		.type = TYPE,
+		.ip = conn_data->ipaddr_str,
+		.action = LOGIN_EV,
+		.data = data,
+		.data_len = sizeof(data) / sizeof(*data),
+	};
+	report(&msg, "ftp - error - couldn't report login\n");
 }
 
 static void report_connect(struct conn_data *conn_data) {
-	struct proxy_msg msg;
-	msg.ts = time(NULL);
-	msg.type = TYPE;
-	msg.ip = conn_data->ipaddr_str;
-	msg.action = CONNECT_EV;
-	msg.data = NULL;
-	msg.data_len = 0;
-	if (proxy_report(report_fd, &msg) !=0) {
-		DEBUG_PRINT("ftp - error - couldn't report connect\n");
-		exit_code = EXIT_FAILURE;
-		event_base_loopbreak(ev_base);
-	}
+	struct proxy_msg msg = {
+		.ts = time(NULL),
+		.type = TYPE,
+		.ip = conn_data->ipaddr_str,
+		.action = CONNECT_EV,
+		.data = NULL,
+		.data_len = 0,
+	};
+	report(&msg, "ftp - error - couldn't report connect\n");
 }
 
 static int user_cmd(struct conn_data *conn_data, uint8_t *param, size_t param_len) {
