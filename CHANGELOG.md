@@ -6,13 +6,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [2.0.1] - 2020-08-03
 ### Fixed
-* Telnet getting stuck with specific control sequence being received
+- Telnet getting stuck with specific control sequence being received
 
 ## [2.0.0] - 2020-07-27
 ### Added
-* Minipot for HTTP protocol
-* Minipot for FTP protocol
-* Minipot for SMTP submission protocol
+- Minipot for HTTP protocol
+- Minipot for FTP protocol
+- Minipot for SMTP submission protocol
 
 ### Changed
-* Argument parsing
+- Argument parsing
