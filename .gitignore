@@ -12,6 +12,8 @@ tests/unit/tests
 test-suite*.log
 tests/*/*.log
 tests/*/*.trs
+tests/integration/logs/
+
 
 # Python cache files and folders
 *.pyc
