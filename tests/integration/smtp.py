@@ -2,8 +2,7 @@ from base64 import standard_b64encode
 from random import choice, randint
 
 
-from framework.proxy import gen_proxy_report
-from framework.utils import recv_from_sock, get_ip_addr, gen_rand_bytes_w10, gen_rand_utf8_string
+from framework.utils import recv_from_sock, get_ip_addr, gen_rand_bytes_w10, gen_rand_utf8_string, gen_proxy_report
 
 
 MINIPOT_ERROR_LIMIT = 20
