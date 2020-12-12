@@ -1,8 +1,7 @@
 from random import randint, choice
 from base64 import standard_b64encode
 
-from framework.utils import gen_rand_bytes_w10, recv_from_sock, get_ip_addr, gen_rand_utf8_string
-from framework.proxy import gen_proxy_report
+from framework.utils import gen_rand_bytes_w10, recv_from_sock, get_ip_addr, gen_rand_utf8_string, gen_proxy_report
 
 MINIPOT_TOKEN_BUFF_LEN = 8192
 MINIPOT_HEADER_LIMIT = 100
