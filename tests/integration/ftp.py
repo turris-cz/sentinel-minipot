@@ -1,7 +1,6 @@
 from random import randint
 
-from framework.utils import get_ip_addr, recv_from_sock, gen_rand_utf8_string, gen_rand_bytes_w10
-from framework.proxy import gen_proxy_report
+from framework.utils import get_ip_addr, recv_from_sock, gen_rand_utf8_string, gen_rand_bytes_w10, gen_proxy_report
 
 
 MINIPOT_CMD_BUFF_LEN = 4096
