@@ -1,7 +1,6 @@
 from random import randint
 
-from framework.proxy import gen_proxy_report
-from framework.utils import get_ip_addr, recv_from_sock, gen_rand_utf8_string
+from framework.utils import get_ip_addr, recv_from_sock, gen_rand_utf8_string, gen_proxy_report
 
 MINIPOT_MAX_LINE_LEN = 1024  # in bytes
 
