@@ -67,3 +67,21 @@ def gen_rand_utf8_string(len):
     ret = b"".join(gen_rand_utf8_char(r.randint(1, 4)) for _ in range(len))
     ret.decode(encoding="utf-8", errors="strict")  # check whether it is really UTF-8 string
     return ret
+
+
+def gen_proxy_report(protocol, action, ip, data=None):
+    """ Generates proxy report from given input data and returns it as bytes.
+
+    Parameters:
+        protocol: bytes
+        action: bytes
+        ip: bytes
+        data: dictionary: keys and values are bytes  """
+    report = {
+        b"type": protocol,
+        b"action": action,
+        b"ip": ip,
+    }
+    if data:
+        report[b"data"] = data
+    return report

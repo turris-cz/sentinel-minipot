@@ -4,7 +4,9 @@ import pathlib
 
 
 from framework.client import client_runner
-from framework.proxy import proxy_handler
+
+
+OUT_CAPT = "out_capt"
 
 
 class Test:
@@ -15,8 +17,11 @@ class Test:
             name of the test
         path_to_log: string
             path to directory where logs will be saved
-        proxy_sock: string
-            address string of ZMQ socket in form "protocol://interface:port"
+        out_capt_handler: tuple (handler, *args)
+            handler: callable
+                Function implementing collection of minipot pipeline output
+                It must return list of captured Sentinel messages.
+            *args: parameters passed to handler
         conn_handlers: list of tuples (handler, host, port)
             handler: callable
                 Function implementing test case. It must have socket object as a parameter.
@@ -34,7 +39,7 @@ class Test:
             Runs handlers given in contructor each in separate thread and matches
             generated reports from handlers with reports received from ZMQ socket. """
 
-    def __init__(self, name, path_to_log, proxy_sock, conn_handlers):
+    def __init__(self, name, path_to_log, out_capt_handler, conn_handlers):
         """ Assigns parameters to dedicated instance attributes.
 
         Parameters:
@@ -42,25 +47,28 @@ class Test:
                 name of the test
             path_to_log: string
                 path to directory where logs will be saved
-            proxy_sock: string
-                address string of ZMQ socket in form "protocol://interface:port"
+            out_capt_handler: tuple (handler, *args)
+                handler: callable
+                    Function implementing collection of minipot pipeline output
+                    It must return list of captured Sentinel messages.
+                *args: parameters passed to handler
             conn_handlers: list of tuples (handler, host, port)
-            handler: callable
-                Function implementing test case. It must have socket object as a parameter.
-                It returns list of generated proxy reports - dictionaries for later check
-                or an exception if communication with Minipots went wrong.
-            host: string
-                Minipots host identification
-            port: int
-                Minipots port identification
+                handler: callable
+                    Function implementing test case. It must have socket object as a parameter.
+                    It returns list of generated proxy reports - dictionaries for later check
+                    or an exception if communication with Minipots went wrong.
+                host: string
+                    Minipots host identification
+                port: int
+                    Minipots port identification
 
             Host and port are used to create socket object socket used as input
             parameter to handler function.
         """
         self.name = name
-        self.proxy_sock = proxy_sock
-        self.conn_handlers = conn_handlers
         self.path_to_log = path_to_log
+        self.out_capt_handler = out_capt_handler
+        self.conn_handlers = conn_handlers
 
     def run(self):
         """ Runs handlers given in constructor each in separate thread and matches
@@ -71,10 +79,9 @@ class Test:
         futures = {}
         # clients
         for handler in self.conn_handlers:
-            futures[executor.submit(client_runner, handler[0], handler[1],
-                                    handler[2],)] = handler[0].__name__
-        # proxy
-        futures[executor.submit(proxy_handler, self.proxy_sock)] = 'proxy'
+            futures[executor.submit(client_runner, *handler,)] = handler[0].__name__
+        # minipot pipeline output capture
+        futures[executor.submit(*self.out_capt_handler)] = OUT_CAPT
         # wait for all futures finish the execution - BLOCKING
         done = concurrent.futures.wait(futures)[0]
         executor.shutdown()
@@ -88,7 +95,7 @@ class Test:
             # check for an exception
             if isinstance(d.result(), Exception):
                 raise d.result()
-            elif futures[d] == 'proxy':
+            elif futures[d] == OUT_CAPT:
                 proxy = d.result()
             else:
                 clients.append(d.result())
@@ -101,7 +108,7 @@ class Test:
                         mesg_id += 1
             client_id += 1
         # write proxy output to a log file
-        with open(root_path / 'proxy.log', "w") as pfile:
+        with open(root_path / 'pipeline_out.log', "w") as pfile:
             mesg_id = 0
             for mesg in proxy:
                 pprint.pprint(mesg_id, pfile)
@@ -109,10 +116,9 @@ class Test:
                 mesg_id += 1
         # check sent messages against reports from proxy
         for client in clients:
-            line = 0
             for mesg in client:
-                proxy.remove(mesg)
-                line += 1
-        if proxy:
-            raise Exception('reported messages does not match')
+                if mesg in proxy:
+                    proxy.remove(mesg)
+                else:
+                    raise Exception('reported messages does not match')
         print(self.name, ' passed')
