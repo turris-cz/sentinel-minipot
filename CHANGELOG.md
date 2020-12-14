@@ -11,6 +11,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Removed
 - Manual proxy - moved to Proxy repo
 
+### Changed
+- Update README
+
 ## [2.1.0] - 2020-12-15
 ### Added
 - Server data check
