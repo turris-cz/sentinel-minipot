@@ -62,6 +62,12 @@ case "$test_type" in
 				;;
 		esac
 		;;
+	"p")
+		test_mesg="pipeline"
+		minipot_mesg="ftp http smtp telnet"
+		socket_arg="ipc:///tmp/sentinel_pull.sock"
+		minipot_arg="-F 9015 -H 9016 -S 9017 -T 9018"
+		;;
 	*)
 		echo "Test type $test_type is not valid."
 		exit 1
@@ -75,4 +81,4 @@ valgrind \
 --leak-check=full --trace-children=yes \
 --show-leak-kinds=definite,indirect,possible --track-fds=yes \
 --error-exitcode=1 --track-origins=yes \
-../sentinel-minipot -s "$socket_arg" "$minipot_arg"
+../sentinel-minipot -s $socket_arg $minipot_arg
