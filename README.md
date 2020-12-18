@@ -1,6 +1,6 @@
 # Sentinel-minipot - minimal honeypot
 
-It emulates Telnet, HTTP, FTP and SMTP network services. Main purpose of the Sentinel-minipot is to collect authentication information from login attempts. Not all functionalities of particular service - protocol are implemented, only functionality needed for authentication is. 
+It emulates Telnet, HTTP, FTP and SMTP network services. Main purpose of the Sentinel-minipot is to collect authentication information from login attempts. Not all functionalities of particular service - protocol are implemented, only functionality needed for authentication is.
 Recorded events of peer connection and authentication are logged to Sentinel proxy.
 
 ## Dependencies
@@ -36,7 +36,7 @@ In main project folder run:
 make
 ```
 
-To enable tests run:  
+To enable tests run:
 ```./bootstrap --enable-tests```
 
 To run tests:
@@ -58,8 +58,8 @@ optional - these arguments has a default values in case their value is not given
 
 mandatory - At least one of them must be present. These arguments define which minipots are run on which ports, so at least one minipot must be set up for running.
 
-- `-T x` - Telnet minipot on port x 
-- `-H x` - HTTP minipot on port x 
+- `-T x` - Telnet minipot on port x
+- `-H x` - HTTP minipot on port x
 - `-F x` - FTP minipot on port x
 - `-S x` - SMTP minipot on port x
 
