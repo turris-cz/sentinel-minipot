@@ -23,10 +23,9 @@ However, it is recomened to tests it together with Sanity check.
 
 ## How to run tests?
 The integration tests are run by simply creating and running a script file
-containing defined tests (see `integration/doc` for information how to
-create a test). This allows ultimate modularity. Everyone can create their
-own script files with any tests. Currently, there are 2 script files for each
-type of Minipot. Scripts `run_xxx_from_minipots` perform tests where Minipots
+containing defined tests. This allows ultimate modularity. Everyone can create
+their own script files with any tests. Currently, there are 2 script files for
+each type of Minipot. Scripts `run_xxx_from_minipots` perform tests where Minipots
 outputs are captured directly from Minipots. This is usefull in earlier stages
 of the development process. Scripts `run_xxx_from_sanity_check` perform tests
 where Minipots outputs are captured from Sanity check. This is usefull to
@@ -36,14 +35,9 @@ information.
 
 For the best setup see Test setup part of this document.
 
-## More information
-For more information about integration testing framework see `integration\docs`
-folder.
-
 ## Dependencies
 - pyzmq
 - msgpack
-
 
 # Test setup
 Manual and integration tests requires running `Minipots` instance (see `../README.md`).

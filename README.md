@@ -68,7 +68,3 @@ Several instances of same service minipot - child process can run together. Of c
 E.g. for running HTTP minipot on port 9000, FTP minipot on port 9001 and SMTP minipot on port 9002 run:
 
 ```./sentinel_minipot -H 9000 -F 9001 -S 9002```
-
-
-## More info
-For more information about Sentinel-minipot see `doc` folder. More information about tests see `README` and `doc` in `tests/integration` and `README` in `tests/manual`.

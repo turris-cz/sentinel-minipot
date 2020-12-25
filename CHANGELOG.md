@@ -10,6 +10,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Removed
 - Manual proxy - moved to Proxy repo
+- Minipots doc - moved to internal wiki
 
 ### Changed
 - Update README
