@@ -19,9 +19,10 @@
 #ifndef __SENTINEL_MINIPOT_TELNET_H__
 #define __SENTINEL_MINIPOT_TELNET_H__
 
-/*
- * Runs Telnet minimal honeypot.
- */
+// Runs Telnet minipot.
+// listen_fd: FD of socket listening for attacker connections
+// pipe_erite_end: FD for sending Sentinel messages
+// Returns minipot exit code: EXIT_FAILURE or EXIT_SUCCES.
 int handle_telnet(int listen_fd, int reporting_fd);
 
 #endif /*__SENTINEL_MINIPOT_TELNET_H__*/

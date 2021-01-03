@@ -42,6 +42,10 @@ struct proxy_msg {
 	size_t data_len;
 };
 
+// Sends proxy message to master process.
+// pipe_fd: FD of read end of pipe to master process
+// proxy_mesg: pointer to proxy_msg struct representing proxy message
+// Returns 0 if the message was sucessfully send otherwise -1 is returned.
 int proxy_report(int pipe_fd, struct proxy_msg *proxy_msg);
 
 #endif /*__SENTINEL_MINIPOT_PIPE_H__*/

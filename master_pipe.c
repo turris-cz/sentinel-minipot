@@ -86,9 +86,7 @@ static void buff_len(struct pipe_data *pipe_data, uint8_t **buff, size_t *size_t
 		pipe_data->state = PS_BUFF_DATA;
 }
 
-/*
- * Returns true if sent was successful and false otherwise.
- */
+// Returns true if sent was successful and false otherwise.
 static bool proxy_send_waiting() {
 	bool ret = true;
 	if (messages_waiting == 0)

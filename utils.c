@@ -60,7 +60,6 @@ int sockaddr_to_string(struct sockaddr_storage *conn_addr, char *str) {
 	}
 }
 
-/* Sends amount of data to a socket fd. If successful returns 0 othervise -1. */
 int send_all(int fd, const char *data, size_t amount) {
 	while (amount > 0) {
 		ssize_t sent = send(fd, data, amount, MSG_NOSIGNAL);
@@ -75,6 +74,16 @@ int send_all(int fd, const char *data, size_t amount) {
 	return 0;
 }
 
+// Skips given bytes from given string starting at first byte of the string.
+// str: pointer to the string
+// str_len: length of the string
+// to_skip: pointer to array of bytes/chars to be skipped
+// 		Each byte/char is going to be skipped.
+// to_skip_len: length of to_skip array
+// If str_len is 0 or to_skip_len is 0 or str is NULL or to_skip is NULL, str
+// is returned. Returns pointer to first byte in string not contained in bytes
+// to skip. If all bytes/chars are skipped it returns pointer to the last
+// character of the string.
 static uint8_t *skip_sel_bytes(uint8_t *str, size_t str_len, uint8_t *to_skip, size_t to_skip_len) {
 	if (!str || str_len == 0 || !to_skip || to_skip_len == 0) {
 		DEBUG_PRINT("http - skip bytes - wrong input\n");
@@ -97,10 +106,14 @@ static uint8_t *skip_sel_bytes(uint8_t *str, size_t str_len, uint8_t *to_skip, s
 		return str;
 }
 
-/* Finds a first occurence of any byte (defined by to_skip pointer and length) in str (defined by str pointer and its length).
-If NO occurance is found returns NULL.
-If input pointers are NULL or lengths are 0 also retuns NULL.
- */
+// Finds first occurence of given bytes in given string.
+// str: pointer to the string
+// str_len: length of the string
+// to_skip: pointer to array of bytes/chars to be searched for
+// 		 Presence of each byte/char is going to be evaluated.
+// Returns pointer to first character in the string matching any byte from
+// to_skip. If str is NULL or to_skip is NULL or str_len is 0 or to_skip_len is
+// 0, it returns NULL. If NO occurance of evaluated bytes is found, it returns NULL.
 static uint8_t *find_first_occur(uint8_t *str, size_t str_len, uint8_t *to_skip, size_t to_skip_len) {
 	if (!str || str_len == 0 || !to_skip || to_skip_len == 0) {
 		DEBUG_PRINT("http - find first occur - wrong input\n");
@@ -158,18 +171,13 @@ size_t tokenize(uint8_t *str, size_t str_len, struct token *tokens, size_t token
 	DEBUG_PRINT("tokenize - reached maximum tokens\n");
 }
 
-void ev_base_discard_cb(int severity, const char *msg) {
-	/* This callback does nothing. */
-}
+void ev_base_discard_cb(int severity, const char *msg) {}
 
 void on_sigint(evutil_socket_t sig, short events, void *user_data) {
 	struct event_base *evb = (struct event_base *)user_data;
 	event_base_loopbreak(evb);
 }
 
-/*
- * Allocates memory and concats null terminated strings to one null terminated string.
- */
 void concat_mesg(char **buff, size_t args_num, ...) {
 	DEBUG_PRINT("utils - concat mesg\n");
 	va_list args;
@@ -188,12 +196,6 @@ void concat_mesg(char **buff, size_t args_num, ...) {
 	va_end(args);
 }
 
-/*
- * Validates whether data pointed by buff with given length can be
- * decoded as UTF-8 string NOT containing NULL characters.
- * If data represents UTF-8 string and do NOT contain NULL byte(s) it returns 0
- * otherwise -1 is returned.
- */
 int check_serv_data(const uint8_t *buff, size_t len) {
 	DEBUG_PRINT("utils - check_serv_data\n");
 	enum state{S0, S1, S2, S3, S4, S5, S6, S7} state = S0;

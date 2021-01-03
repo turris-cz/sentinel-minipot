@@ -20,10 +20,10 @@
 #define __SENTINEL_MINIPOT_FTP_
 #include <stdint.h>
 
-/*
- * Runs FTP minimal honeypot.
- * Returns minimal honeypot exit code.
- */
+// Runs FTP minipot.
+// listen_fd: FD of socket listening for attacker connections
+// pipe_erite_end: FD for sending Sentinel messages
+// Returns minipot exit code: EXIT_FAILURE or EXIT_SUCCES.
 int handle_ftp(int listen_fd, int pipe_write_fd);
 
 #endif /*__SENTINEL_MINIPOT_FTP_*/

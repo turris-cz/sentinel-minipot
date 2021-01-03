@@ -19,10 +19,10 @@
 #ifndef __SENTINEL_MINIPOT_HTTP_H__
 #define __SENTINEL_MINIPOT_HTTP_H__
 
-/*
- * Runs HTTP minimal honeypot.
- * Returns minimal honeypot return code.
- */
+// Runs HTTP minipot.
+// listen_fd: FD of socket listening for attacker connections
+// pipe_erite_end: FD for sending Sentinel messages
+// Returns minipot exit code: EXIT_FAILURE or EXIT_SUCCES.
 int handle_http(int listen_fd, int reporting_fd);
 
 #endif /*__SENTINEL_MINIPOT_HTTP_H__*/

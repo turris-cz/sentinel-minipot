@@ -62,25 +62,69 @@ struct token{
 	size_t len;
 };
 
+// Sets file descriptor as nonblocking.
+// fd: file descriptor
+// Returns 0 if setting was sucessfull otherwise -1 is returned.
 int setnonblock(int fd);
+
+// Extracts IP adress from socket adress storage and stores it at buffer.
+// conn_addr: pointer to socket_addr_storage struct
+// str: pointer to the buffer
+// Caller is responsible for proper memory allocation and free of str buffer.
+// It is highly recomended to use IP_ADDR_LEN macro for the buffer allocation.
+// Returns 0 if IPv4 or IPv6 adress was extracted to the buffer otherwise 1 is
+// returned.
 int sockaddr_to_string(struct sockaddr_storage *conn_addr, char *str);
+
+// Sends data to a socket.
+// fd: socket FD
+// data: pointer to data
+// amount: length of the data
+// If successful returns 0 othervise -1.
 int send_all(int fd, const char *data, size_t amount);
 
-/**
- * tokenize - Splits string (NOT NULL TERMINATED C-STRING) into tokens according to given separators.
- * 			There can be more separators between two tokens. Each token in saved in output array of token structs.
- * @str: start pointer to byte array
- * @str_len: length of byte array
- * @tokens: start pointer to array of token structs
- * @tokens_len: length of token structs array
- * @separators: start pointer to array of bytes
- * 				Each byte is considered as a separator.
- * @sep_len: length of byte array defined by @separators
- */
+// Splits string (NOT NULL TERMINATED C-STRING) into tokens according to given
+// separators. Each token in saved in output array of token structs.
+// str: pointer to the string
+// str_len: length of the string
+// tokens: start pointer to array of token structs
+// tokens_len: length of token structs array
+// separators: pointer to array of bytes/chars
+// 		Each byte/char is considered as a separator.
+// sep_len: number of separators bytes/chars
+// There can be more separators between two tokens. Separators before first and
+// after last token are skipped. Caller is responsible for proper allocation
+// and free of enough tokens structs. It is recomended to allocate memory for
+// maximum number of tokens which can be found: str_len / 2.
+// Returns number of found tokens.
 size_t tokenize(uint8_t *str, size_t str_len, struct token *tokens, size_t tokens_len, uint8_t *separators, size_t sep_len);
+
+// Event base logging callback handler. It is empty procedure to supress any
+// logging of an event base. First, it must be set up using event_set_log_callback
+// function to work.
 void ev_base_discard_cb(int severity, const char *msg);
+
+// Concats NULL terminated strings passed as arguments to one NULL terminated string.
+// buff: address of pointer to resulting string
+// args_num: number of strings to concat
+// 		Strings folllows as variable number of arguments.
+// First, it allocates exact needed memory at *buff address. Caller is responsible
+// for freeing allocated memory after using the string pointed by *buff.
 void concat_mesg(char **buff, size_t args_num, ...);
+
+// SIGINT signal event base handler. Given event base is only broken inside
+// this procedure. First, it must be set up as callback to SIGINT signal by
+// event_new or event_aasign to work properly.
 void on_sigint(evutil_socket_t sig, short events, void *user_data);
+
+// Validates whether given buffer can be decoded as UTF-8 string NOT containing
+// NULL characters.
+// buff: pointer to the buffer
+// len: buffer length
+// It uses naive implementation of canonical UTF-8 automaton from:
+// https://bjoern.hoehrmann.de/utf-8/decoder/dfa/.
+// If data represents UTF-8 string and do NOT contain NULL byte(s) it returns 0
+// otherwise -1 is returned.
 int check_serv_data(const uint8_t *buff, size_t len);
 
 #endif /*__SENTINEL_MINIPOT_UTILS_H__*/

@@ -21,6 +21,12 @@
 
 #include "minipot_config.h"
 
+// Parses CLI options and their arguments and fills in configuration struct.
+// argc: same as main()
+// argv: same as main()
+// conf: pointer to the configuration struct
+// Returns MP_ERR_CLI if th options parsing failed or the options and their
+// arguments are invalid. Otherwise, MP_ERR_OK is returned.
 int load_cli_opts(int argc, char **argv, struct configuration *conf);
 
 #endif /*__SENTINEL_MINIPOT_CLI_OPTS_H__*/

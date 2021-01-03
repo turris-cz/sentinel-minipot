@@ -23,10 +23,9 @@
 
 #include "service_data.h"
 
-/*
- * General child process handler.
- * Returns child process exit code.
- */
+// General child process handler implementing common setup. It runs particular
+// minipot handler and passes its return code to master process.
+// data: pointer to struct storing minipot configuration
 int handle_child(struct service_data *data);
 
 #endif /*__SENTINEL_MINIPOT_CHILD_H__*/

@@ -19,9 +19,10 @@
 #ifndef __SENTINEL_MINIPOT_SMTP__
 #define __SENTINEL_MINIPOT_SMTP__
 
-/*
- * Runs SMTP minimal honeypot.
- */
+// Runs SMTP minipot.
+// listen_fd: FD of socket listening for attacker connections
+// pipe_erite_end: FD for sending Sentinel messages
+// Returns minipot exit code: EXIT_FAILURE or EXIT_SUCCES.
 int handle_smtp(int listen_fd, int reporting_fd);
 
 #endif /*__SENTINEL_MINIPOT_SMTP__*/
