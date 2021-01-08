@@ -61,10 +61,11 @@ valgrind \
 Script `run_minipots_for_testing.sh` runs `Minipots` instance
 on predefined ports and predefined ZMQ socket based on input arguments.
 It has two arguments. The first argument is test type.
-Its value is either `m`, `i`, and `p`. `m` stands for manual and `i`for integration testing.
+Its value is either `m`/`i`/`p`/`t`. `m` stands for manual and `i`for integration testing.
 If one of these two types is selected, the second script argument must be also defined.
 These two configurations are meant for testing `Minipots` component itself.
 `p` stands for pipeline testing. This configuration is desired for testing
 Minipot pipeline composed from more Sentinel components not only `Minipots`.
-The second argument is minipot type. Its value is either `f`/`h`/`s`/`t`
-representing `ftp`/`http`/`smtp`/`telnet` minipots.
+`t` means throughput testing. It is intended for testing of ZMQ behaviour and
+its limit. The second argument is minipot type. Its value is either
+`f`/`h`/`s`/`t` representing `ftp`/`http`/`smtp`/`telnet` minipots.

@@ -68,6 +68,12 @@ case "$test_type" in
 		socket_arg="ipc:///tmp/sentinel_pull.sock"
 		minipot_arg="-F 9015 -H 9016 -S 9017 -T 9018"
 		;;
+	"t")
+		test_mesg="throughput"
+		minipot_mesg="ftp http smtp telnet"
+		socket_arg="ipc:///tmp/sentinel_pull10.sock"
+		minipot_arg="-F 9020 -H 9021 -S 9022 -T 9023"
+		;;
 	*)
 		echo "Test type $test_type is not valid."
 		exit 1
