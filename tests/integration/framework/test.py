@@ -122,3 +122,58 @@ class Test:
                 else:
                     raise Exception('reported messages does not match')
         print(self.name, ' passed')
+
+
+class HandlerRunner:
+    """ Provides interface for running minipot client handlers each in separate thread.
+
+    Attributes:
+        conn_handlers: list of tuples (handler, host, port)
+            handler: callable
+                Function implementing test case. It must have socket object as a parameter.
+                It returns list of generated proxy reports - dictionaries for later check
+                or an exception if communication with Minipots went wrong.
+            host: string
+                Minipots host identification
+            port: int
+                Minipots port identification
+            Host and port are used to create socket object socket used as input
+            parameter to handler function.
+
+    Methods:
+        run:
+            Runs handlers given in contructor each in separate thread. """
+
+    def __init__(self, handlers):
+        """ Assigns parameters to dedicated instance attributes.
+
+        Parameters:
+            conn_handlers: list of tuples (handler, host, port)
+                handler: callable
+                    Function implementing test case. It must have socket object as a parameter.
+                    It returns list of generated proxy reports - dictionaries for later check
+                    or an exception if communication with Minipots went wrong.
+                host: string
+                    Minipots host identification
+                port: int
+                    Minipots port identification
+
+            Host and port are used to create socket object socket used as input
+            parameter to handler function.
+        """
+        self.handlers = handlers
+
+    def run(self):
+        """ Runs handlers given in constructor each in separate thread and matches
+        generated reports from handlers with reports received from ZMQ socket.
+        If matching of generated and received reports fails or if handler
+        returns exception the test failed. If test passed the message is printed to stdout. """
+        executor = concurrent.futures.ThreadPoolExecutor()
+        futures = []
+        for handler in self.handlers:
+            futures.append(executor.submit(client_runner, handler[0], handler[1], handler[2]))
+        print("All futures submited.")
+        # wait for all futures finish the execution - BLOCKING
+        concurrent.futures.wait(futures)
+        print("All futures done.")
+        executor.shutdown()
