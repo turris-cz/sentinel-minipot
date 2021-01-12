@@ -19,6 +19,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Update integration tests doc
 - Update Minipots doc
 
+### Fixed
+- Debug prints
+
 ## [2.1.0] - 2020-12-15
 ### Added
 - Server data check

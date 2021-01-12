@@ -235,7 +235,7 @@ static inline int send_resp(struct conn_data *conn_data, char *mesg) {
 
 static inline void report(struct proxy_msg *proxy_msg, const char *err_msg) {
 	if (proxy_report(report_fd, proxy_msg) !=0) {
-		DEBUG_PRINT(err_msg);
+		DEBUG_PRINT("%s", err_msg);
 		exit_code = EXIT_FAILURE;
 		event_base_loopbreak(ev_base);
 	}
