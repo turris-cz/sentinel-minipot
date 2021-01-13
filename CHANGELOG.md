@@ -22,6 +22,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Fixed
 - Debug prints
 - HTTP content length parsing
+- SMTP SASL mechanism field name
 
 ## [2.1.0] - 2020-12-15
 ### Added

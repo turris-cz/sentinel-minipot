@@ -45,7 +45,7 @@
 
 #define LOGIN_USER "username"
 #define LOGIN_PASS "password"
-#define SASL_MECH "sasl_mechanism"
+#define SASL_MECH "mechanism"
 #define SASL_LOGIN "login"
 #define SASL_PLAIN "plain"
 
