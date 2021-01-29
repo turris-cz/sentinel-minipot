@@ -28,6 +28,7 @@
 #include "utils.h"
 #include "minipot_pipe.h"
 #include "ftp_commands.gperf.c"
+#include "log.h"
 
 #define MAX_CONN_COUNT 5
 #define CONN_TIMEOUT (60 * 5)
@@ -83,6 +84,7 @@ static uint8_t *read_buff;
 static struct event *accept_ev;
 
 static void free_conn_data(struct conn_data *conn_data) {
+	TRACE_FUNC;
 	free(conn_data->cmd_buff);
 	free(conn_data->user);
 	free(conn_data->ipaddr_str);
@@ -92,6 +94,7 @@ static void free_conn_data(struct conn_data *conn_data) {
 }
 
 static int alloc_conn_data(struct conn_data *conn_data) {
+	TRACE_FUNC;
 	conn_data->read_ev = event_new(NULL, 0, 0, NULL, NULL);
 	if (conn_data->read_ev == NULL)
 		goto err1;
@@ -133,11 +136,13 @@ static int alloc_conn_data(struct conn_data *conn_data) {
 }
 
 static void free_conn_data_pool(size_t size, struct conn_data *conn_data) {
+	TRACE_FUNC;
 	for (size_t i = 0; i < size; i++)
 		free_conn_data(&conn_data[i]);
 }
 
 static int alloc_conn_data_pool(struct conn_data **conn_data) {
+	TRACE_FUNC;
 	struct conn_data *data = malloc(sizeof(*data) * MAX_CONN_COUNT);
 	for (size_t i = 0; i < MAX_CONN_COUNT; i++) {
 		if (alloc_conn_data(&data[i]) != 0) {
@@ -150,6 +155,7 @@ static int alloc_conn_data_pool(struct conn_data **conn_data) {
 }
 
 static int alloc_glob_res() {
+	TRACE_FUNC;
 	ev_base = event_base_new();
 	if (ev_base == NULL)
 		goto err1;
@@ -173,10 +179,12 @@ static int alloc_glob_res() {
 	event_base_free(ev_base);
 
 	err1:
+	ERROR("Couldn't allocate global resources");
 	return -1;
 }
 
 static void free_glob_res() {
+	TRACE_FUNC;
 	event_free(accept_ev);
 	free_conn_data_pool(MAX_CONN_COUNT, conn_data_pool);
 	event_base_free(ev_base);
@@ -184,11 +192,13 @@ static void free_glob_res() {
 }
 
 static void reset_cmd_buff(struct conn_data *conn_data) {
+	TRACE_FUNC_FD(conn_data->fd);
 	conn_data->cmd_buff_wrt_ptr = conn_data->cmd_buff;
 	conn_data->cmd_buff_free_len = CMD_BUFF_LEN;
 }
 
 static inline void reset_conn_data(struct conn_data *conn_data) {
+	TRACE_FUNC_FD(conn_data->fd);
 	conn_data->try_count = 0;
 	conn_data->user_provided = false;
 	conn_data->user_len = 0;
@@ -197,6 +207,7 @@ static inline void reset_conn_data(struct conn_data *conn_data) {
 }
 
 static struct conn_data *get_conn_data(int fd) {
+	TRACE_FUNC_FD(fd);
 	struct conn_data *ret = NULL;
 	size_t i = 0;
 	for (; i < MAX_CONN_COUNT; i++) {
@@ -215,33 +226,33 @@ static struct conn_data *get_conn_data(int fd) {
 	return ret;
 }
 static void close_conn(struct conn_data *conn_data) {
-	DEBUG_PRINT("ftp - closed connection, fd: %d\n",conn_data->fd);
+	TRACE_FUNC_FD(conn_data->fd);
 	event_del(conn_data->read_ev);
 	event_del(conn_data->con_tout_ev);
 	event_del(conn_data->inac_tout_ev);
+	INFO("Connection with FD: %d was closed",conn_data->fd);
 	close(conn_data->fd);
 	conn_data->fd = -1;
 	event_add(accept_ev, NULL);
 }
 
 static inline int send_resp(struct conn_data *conn_data, char *mesg) {
-	if (send_all(conn_data->fd, mesg, strlen(mesg)) != 0) {
-		DEBUG_PRINT("ftp - error - could not send to peer\n");
+	TRACE_FUNC_FD(conn_data->fd);
+	if (send_all(conn_data->fd, mesg, strlen(mesg)) != 0)
 		return -1;
-	} else {
-		return 0;
-	}
+	return 0;
 }
 
-static inline void report(struct proxy_msg *proxy_msg, const char *err_msg) {
+static inline void report(struct proxy_msg *proxy_msg) {
+	TRACE_FUNC;
 	if (proxy_report(report_fd, proxy_msg) !=0) {
-		DEBUG_PRINT("%s", err_msg);
 		exit_code = EXIT_FAILURE;
 		event_base_loopbreak(ev_base);
 	}
 };
 
 static void report_invalid(struct conn_data *conn_data) {
+	TRACE_FUNC_FD(conn_data->fd);
 	struct proxy_msg msg = {
 		.ts = time(NULL),
 		.type = TYPE,
@@ -250,10 +261,11 @@ static void report_invalid(struct conn_data *conn_data) {
 		.data = NULL,
 		.data_len = 0,
 	};
-	report(&msg, "ftp - error - couldn't report invalid\n");
+	report(&msg);
 }
 
 static void report_login(struct conn_data *conn_data, uint8_t *param, size_t param_len) {
+	TRACE_FUNC_FD(conn_data->fd);
 	if (check_serv_data(conn_data->user, conn_data->user_len) ||
 		check_serv_data(param, param_len)) {
 		report_invalid(conn_data);
@@ -272,10 +284,11 @@ static void report_login(struct conn_data *conn_data, uint8_t *param, size_t par
 		.data = data,
 		.data_len = sizeof(data) / sizeof(*data),
 	};
-	report(&msg, "ftp - error - couldn't report login\n");
+	report(&msg);
 }
 
 static void report_connect(struct conn_data *conn_data) {
+	TRACE_FUNC_FD(conn_data->fd);
 	struct proxy_msg msg = {
 		.ts = time(NULL),
 		.type = TYPE,
@@ -284,11 +297,11 @@ static void report_connect(struct conn_data *conn_data) {
 		.data = NULL,
 		.data_len = 0,
 	};
-	report(&msg, "ftp - error - couldn't report connect\n");
+	report(&msg);
 }
 
 static int user_cmd(struct conn_data *conn_data, uint8_t *param, size_t param_len) {
-	DEBUG_PRINT("ftp - user cmd\n");
+	TRACE_FUNC_FD(conn_data->fd);
 	if (param_len > 0) {
 		conn_data->user_provided = true;
 		memcpy(conn_data->user, param, param_len);
@@ -298,7 +311,7 @@ static int user_cmd(struct conn_data *conn_data, uint8_t *param, size_t param_le
 }
 
 static int pass_cmd(struct conn_data *conn_data,  uint8_t *param, size_t param_len) {
-	DEBUG_PRINT("ftp - pass cmd\n");
+	TRACE_FUNC_FD(conn_data->fd);
 	if (conn_data->user_provided) {
 		conn_data->user_provided = false;
 		report_login(conn_data, param, param_len);
@@ -306,8 +319,8 @@ static int pass_cmd(struct conn_data *conn_data,  uint8_t *param, size_t param_l
 			return -1;
 		conn_data->try_count++;
 		if (conn_data->try_count == LOG_ATMPS_CNT) {
-			DEBUG_PRINT("ftp - pass cmd - login attempt limit reached\n");
-			// close connection
+			INFO("Login attempt limit was reached on connection with FD: %d",
+				conn_data->fd);
 			return -1;
 		}
 		return 0;
@@ -318,7 +331,7 @@ static int pass_cmd(struct conn_data *conn_data,  uint8_t *param, size_t param_l
 }
 
 static int opts_cmd(struct conn_data *conn_data,  uint8_t *param, size_t param_len) {
-	DEBUG_PRINT("ftp - opts cmd\n");
+	TRACE_FUNC_FD(conn_data->fd);
 	if (param_len > 0)
 		if (strncasecmp(param, UTF8_ON_OPT,param_len) != 0)
 			return send_resp(conn_data, OPTS_501_RESP);
@@ -329,7 +342,7 @@ static int opts_cmd(struct conn_data *conn_data,  uint8_t *param, size_t param_l
 }
 
 static int proc_cmd(struct conn_data *conn_data) {
-	DEBUG_PRINT("ftp - detect cmd\n");
+	TRACE_FUNC_FD(conn_data->fd);
 	// strip LF
 	conn_data->cmd_buff_free_len += 1;
 	if (CMD_BUFF_LEN == conn_data->cmd_buff_free_len)
@@ -355,7 +368,6 @@ static int proc_cmd(struct conn_data *conn_data) {
 	}
 	struct ftp_command *cmd = ftp_command_lookup(conn_data->cmd_buff, cmd_code_len);
 	if (cmd == NULL) {
-		DEBUG_PRINT("ftp - other cmd\n");
 		return send_resp(conn_data, OTHER_RESP);
 	} else {
 		switch (cmd->comand_abr) {
@@ -364,23 +376,22 @@ static int proc_cmd(struct conn_data *conn_data) {
 			case PASS:
 				return pass_cmd(conn_data, param, param_len);
 			case QUIT:
-				DEBUG_PRINT("ftp - quit cmd\n");
 				send_resp(conn_data, QUIT_RESP);
 				return -1;
 			case FEAT:
-				DEBUG_PRINT("ftp -feat cmd\n");
 				return send_resp(conn_data, FEAT_RESP);
 			case OPTS:
 				return opts_cmd(conn_data, param, param_len);
 			default:
-				DEBUG_PRINT("ftp - detect cmd - default\n");
+				ERROR("Invalid FTP command on connection with FD: %d",
+					conn_data->fd);
 				return -1;
 		}
 	}
 }
 
 static void proc_bytes(struct conn_data *conn_data, uint8_t *buff, size_t buff_len) {
-	DEBUG_PRINT("ftp - proc bytes - start\n");
+	TRACE_FUNC_P("FD: %d - start", conn_data->fd);
 	while (buff_len > 0) {
 		size_t bytes_to_buff;
 		uint8_t *cmd_separator = memchr(buff, LF, buff_len);
@@ -416,25 +427,25 @@ static void proc_bytes(struct conn_data *conn_data, uint8_t *buff, size_t buff_l
 		buff += bytes_to_buff;
 		buff_len -= bytes_to_buff;
 	}
-	DEBUG_PRINT("ftp - proc bytes - stop\n");
+	TRACE_FUNC_P("FD: %d - stop", conn_data->fd);
 }
 
 static void on_timeout(int fd, short ev, void *arg){
-	DEBUG_PRINT("ftp - timeout\n");
+	TRACE_FUNC_FD(fd);
 	struct conn_data *conn_data = (struct conn_data *)arg;
 	send_resp(conn_data, TIMEOUT_RESP);
 	close_conn(conn_data);
 }
 
 static void on_recv(int fd, short ev, void *arg) {
-	DEBUG_PRINT("ftp - on receive\n");
+	TRACE_FUNC_FD(fd);
 	struct conn_data *conn_data = (struct conn_data *)arg;
 	ssize_t amount = recv(fd, read_buff, BUFSIZ, 0);
 	switch (amount) {
 		case -1:
 			if (errno == EAGAIN)
 				return;
-			DEBUG_PRINT("ftp - error on connection %d: %s\n", fd, strerror(errno));
+			INFO("Receive error on connection with FD: %d", fd);
 		case 0:
 			close_conn(conn_data);
 			return;
@@ -445,28 +456,25 @@ static void on_recv(int fd, short ev, void *arg) {
 }
 
 static void on_accept(int listen_fd, short ev, void *arg) {
-	DEBUG_PRINT("ftp - on accept\n");
+	TRACE_FUNC;
 	struct sockaddr_storage conn_addr;
 	socklen_t conn_addr_len = sizeof(conn_addr);
 	int conn_fd = accept(listen_fd, (struct sockaddr *)&conn_addr, &conn_addr_len);
 	if (conn_fd < 0) {
-		DEBUG_PRINT("ftp - error - accept\n");
+		ERROR("Couldn't accept connection on socket with FD: %d", listen_fd);
 		return;
 	}
 	if (setnonblock(conn_fd) != 0) {
-		DEBUG_PRINT("ftp - error - couldnt set nonblock\n");
 		close(conn_fd);
 		return;
 	}
 	struct conn_data *conn_data = get_conn_data(conn_fd);
 	if (conn_data == NULL) {
-		DEBUG_PRINT("ftp - accept - no free slots\n");
-		// no free slots
+		INFO("No free conn_data slots. Refusing connection.");
 		close(conn_fd);
 		return;
 	}
 	if (sockaddr_to_string(&conn_addr, conn_data->ipaddr_str) != 0) {
-		DEBUG_PRINT("ftp - sock addr to string - unknown socket family\n");
 		exit_code = EXIT_FAILURE;
 		event_base_loopbreak(ev_base);
 		return;
@@ -485,21 +493,20 @@ static void on_accept(int listen_fd, short ev, void *arg) {
 	tm = (struct timeval) {INACT_TIMEOUT, 0};
 	evtimer_add(conn_data->inac_tout_ev, &tm);
 	report_connect(conn_data);
-	DEBUG_PRINT("ftp - accepted connection %d\n", conn_data->fd);
+	INFO("Accepted connection with FD: %d", conn_data->fd);
 }
 
 int handle_ftp(int listen_fd, int pipe_write_fd) {
+	TRACE_FUNC;
 	exit_code = EXIT_SUCCESS;
 	report_fd = pipe_write_fd;
-	// to supress evenet base logging
+	// to supress event base logging
 	event_set_log_callback(ev_base_discard_cb);
-	if (alloc_glob_res() != 0 ) {
-		DEBUG_PRINT("ftp - error - couldn't allocate global resources\n");
+	if (alloc_glob_res() != 0 )
 		return EXIT_FAILURE;
-	}
 	struct event *sigint_ev = event_new(ev_base, SIGINT, EV_SIGNAL, on_sigint, ev_base);
 	if (sigint_ev == NULL) {
-		DEBUG_PRINT("ftp - error - couldn't allocate sigint ev\n");
+		ERROR("Couldn't create sigint event");
 		exit_code = EXIT_FAILURE;
 		goto sigint_ev_err;
 	}

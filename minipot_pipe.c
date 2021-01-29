@@ -24,11 +24,13 @@
 #include "utils.h"
 
 static int write_all(int fd, const void *data, size_t len) {
+	TRACE_FUNC_FD(fd);
 	while (len > 0) {
 		ssize_t sent = write(fd, data, len);
 		if (sent == -1) {
 			if (errno == EAGAIN || errno == EINTR)
 				continue;
+			ERROR("Couldn't write data to FD: %d", fd);
 			return -1;
 		}
 		data += (size_t)sent;
@@ -48,8 +50,9 @@ static int write_all(int fd, const void *data, size_t len) {
 	} while (0)
 
 int proxy_report(int pipe_fd, struct proxy_msg *proxy_msg) {
+	TRACE_FUNC_FD(pipe_fd);
 	if (!proxy_msg || pipe_fd < 0) {
-		DEBUG_PRINT("proxy report - wrong arguments\n");
+		ERROR("Invalid arguments passed to proxy_report");
 		return -1;
 	}
 	msgpack_sbuffer sbuf;
@@ -64,33 +67,33 @@ int proxy_report(int pipe_fd, struct proxy_msg *proxy_msg) {
 		PACK_STR(&pk, "ts");
 		msgpack_pack_long_long(&pk, proxy_msg->ts);
 	} else {
-		DEBUG_PRINT("proxy report - wrong ts\n");
+		ERROR("Proxy message has invalid time stamp field");
 		DES_AND_RET(&sbuf);
 	}
 	if (proxy_msg->type) {
 		PACK_STR(&pk, "type");
 		PACK_STR(&pk, proxy_msg->type);
 	} else {
-		DEBUG_PRINT("proxy report - wrong type\n");
+		ERROR("Proxy message has invalid type field");
 		DES_AND_RET(&sbuf);
 	}
 	if (proxy_msg->ip) {
 		PACK_STR(&pk, "ip");
 		PACK_STR(&pk, proxy_msg->ip);
 	} else {
-		DEBUG_PRINT("proxy report - wrong ip\n");
+		ERROR("Proxy message has invalid ip field");
 		DES_AND_RET(&sbuf);
 	}
 	if (proxy_msg->action) {
 		PACK_STR(&pk, "action");
 		PACK_STR(&pk, proxy_msg->action);
 	} else {
-		DEBUG_PRINT("proxy report - wrong action\n");
+		ERROR("Proxy message has invalid action field");
 		DES_AND_RET(&sbuf);
 	}
 	if (proxy_msg->data_len > 0) {
 		if (proxy_msg->data == NULL) {
-			DEBUG_PRINT("proxy report - data ptr is NULL\n");
+			ERROR("Proxy message has invalid data field");
 			DES_AND_RET(&sbuf);
 		}
 		msgpack_sbuffer data_sbuf;
@@ -102,7 +105,7 @@ int proxy_report(int pipe_fd, struct proxy_msg *proxy_msg) {
 		for (size_t i = 0; i < proxy_msg->data_len; i++) {
 				// key must have length at least 1
 				if (proxy_msg->data[i].key_len < 1 || proxy_msg->data[i].key == NULL) {
-					DEBUG_PRINT("proxy report - data key is invalid\n");
+					ERROR("Key of proxy message data field is invalid");
 					DES_AND_RET(&data_sbuf);
 					DES_AND_RET(&sbuf);
 				}
@@ -110,7 +113,7 @@ int proxy_report(int pipe_fd, struct proxy_msg *proxy_msg) {
 				msgpack_pack_str_body(&data_pk, proxy_msg->data[i].key, proxy_msg->data[i].key_len);
 				// value can have zero length
 				if (proxy_msg->data[i].val_len > 0 && proxy_msg->data[i].val == NULL) {
-					DEBUG_PRINT("proxy report - data value is invalid\n");
+					ERROR("Data of proxy message data field is invalid");
 					DES_AND_RET(&data_sbuf);
 					DES_AND_RET(&sbuf);
 				}
@@ -123,15 +126,11 @@ int proxy_report(int pipe_fd, struct proxy_msg *proxy_msg) {
 		msgpack_sbuffer_destroy(&data_sbuf);
 	}
 	// send data length
-	if (write_all(pipe_fd, &sbuf.size, sizeof(sbuf.size)) != 0) {
-		DEBUG_PRINT("proxy report - could not write data to pipe\n");
+	if (write_all(pipe_fd, &sbuf.size, sizeof(sbuf.size)))
 		DES_AND_RET(&sbuf);
-	}
 	// send data
-	if (write_all(pipe_fd, sbuf.data, sbuf.size) != 0) {
-		DEBUG_PRINT("proxy report - could not write data to pipe\n");
+	if (write_all(pipe_fd, sbuf.data, sbuf.size))
 		DES_AND_RET(&sbuf);
-	}
 	msgpack_sbuffer_destroy(&sbuf);
 	return 0;
 }

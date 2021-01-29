@@ -33,101 +33,109 @@
 #include "smtp.h"
 
 static int setup_sock(int *fd) {
+	TRACE_FUNC;
 	*fd = socket(AF_INET6, SOCK_STREAM, 0);
-	if (*fd == -1)
+	if (*fd == -1) {
+		ERROR("Couldn't create socket");
 		return -1;
+	}
 	int flag = 1;
-	if (setsockopt(*fd, SOL_SOCKET, SO_REUSEADDR, &flag, sizeof(flag)) != 0)
-		goto err;
+	if (setsockopt(*fd, SOL_SOCKET, SO_REUSEADDR, &flag, sizeof(flag)) != 0) {
+		ERROR("Couldn't set reuse of local adresses on socket with FD: %d", *fd);
+		return -1;
+	}
 	flag = 0;
-	if (setsockopt(*fd, IPPROTO_IPV6, IPV6_V6ONLY, &flag, sizeof(flag)) != 0)
-		goto err;
+	if (setsockopt(*fd, IPPROTO_IPV6, IPV6_V6ONLY, &flag, sizeof(flag)) != 0) {
+		ERROR("Couldn't allow use of IPv4-mapped IPv6 addresses on socket with FD: %d",
+		*fd);
+		return -1;
+	}
 	if (setnonblock(*fd) != 0)
-		goto err;
+		return -1;
 	return 0;
-
-	err:
-	close(*fd);
-	return -1;
 }
 
 static int bind_to_port(int fd, uint16_t port) {
+	TRACE_FUNC_P("socket with FD: %d to port: %d", fd, port);
 	struct sockaddr_in6 listen_addr;
 	memset(&listen_addr, 0, sizeof(listen_addr));
 	listen_addr.sin6_family = AF_INET6;
 	listen_addr.sin6_addr = in6addr_any;
 	listen_addr.sin6_port = htons(port);
-	if (bind(fd, (struct sockaddr *)&listen_addr, sizeof(listen_addr)) != 0)
+	if (bind(fd, (struct sockaddr *)&listen_addr, sizeof(listen_addr)) != 0) {
+		ERROR("Couldn't bind to port %d on socket with FD: %d", port, fd);
 		return -1;
+	}
 	return 0;
 }
 
-static int drop_privileges(const char *username) {
-	if (!geteuid()) { // Chroot and change user and group only if we are root
+static int drop_priviledges(const char *username) {
+	TRACE_FUNC;
+	if (geteuid()) {
+		INFO("running under non priviledged user");
+		if (prctl(PR_SET_NO_NEW_PRIVS, 1, 0, 0, 0))
+			goto err;
+	} else {
+		INFO("running under privildged user, switching to user: %s", username);
+		// Chroot and change user and group only if we are root
 		struct passwd *user = getpwnam(username);
 		if (!user || chroot("/var/empty") || chdir("/") ||
 			setresgid(user->pw_gid, user->pw_gid, user->pw_gid) ||
 			setgroups(1, &user->pw_gid) ||
 			setresuid(user->pw_uid, user->pw_uid, user->pw_uid) ||
-			(geteuid() == 0) || (getegid() == 0) ) {
-			return -1;
-		}
+			(geteuid() == 0) || (getegid() == 0))
+			goto err;
 	}
-	if (prctl(PR_SET_NO_NEW_PRIVS, 1, 0, 0, 0))
-		return -1;
 	return 0;
+	
+	err:
+	ERROR("Couldn't drop priviledges");
+	return -1;
 }
 
 int handle_child(struct service_data *data) {
+	TRACE_FUNC;
+	NOTICE("started to run on port: %d", data->port);
+	close(data->pipe[0]); // close pipe read end
 	int exit_code = EXIT_SUCCESS;
-	int listen_fd;
-	if (setup_sock(&listen_fd) != 0) {
-		DEBUG_PRINT("child - error - couldn't setup socket\n");
-		return EXIT_FAILURE;
-	}
-	if (bind_to_port(listen_fd, data->port) != 0) {
-		DEBUG_PRINT("child - error - couldn't  bind to port fd: %d\n", listen_fd);
+	int listen_fd = -1;
+	if (drop_priviledges(data->user)
+		|| setup_sock(&listen_fd)
+		|| bind_to_port(listen_fd, data->port)) {
 		exit_code = EXIT_FAILURE;
 		goto close_listen_fd;
 	}
 	if (listen(listen_fd, 5) != 0) {
-		DEBUG_PRINT("child - error - couldn't listen on port fd: %d\n", listen_fd);
+		ERROR("Couldn't listen on socket with FD: %d", listen_fd);
 		exit_code = EXIT_FAILURE;
 		goto close_listen_fd;
 	}
-	if (drop_privileges(data->user) != 0) {
-		DEBUG_PRINT("child - could not drop privildges\n");
-		exit_code = EXIT_FAILURE;
-		goto close_listen_fd;
-	}
+	INFO("listening on socket with FD: %d", listen_fd);
+	INFO("sending data to pipe write end with FD: %d", data->pipe[1]);
 	prctl(PR_SET_PDEATHSIG, SIGKILL);
-	close(data->pipe[0]); // close pipe read end
 	setlocale(LC_ALL, "C"); // Unset any locale to hide system locales
 	switch (data->type) {
 		case MP_TYPE_TELNET:
-			prctl(PR_SET_NAME, "Minipot [Telnet]");
 			exit_code = handle_telnet(listen_fd, data->pipe[1]);
 			break;
 		case MP_TYPE_HTTP:
-			prctl(PR_SET_NAME, "Minipot [HTTP]");
 			exit_code = handle_http(listen_fd, data->pipe[1]);
 			break;
 		case MP_TYPE_FTP:
-			prctl(PR_SET_NAME, "Minipot [FTP]");
 			exit_code = handle_ftp(listen_fd, data->pipe[1]);
 			break;
 		case MP_TYPE_SMTP:
-			prctl(PR_SET_NAME, "Minipot [SMTP]");
 			exit_code = handle_smtp(listen_fd, data->pipe[1]);
 			break;
 		default:
-			DEBUG_PRINT("child - unknown minipot type\n");
 			exit_code = EXIT_FAILURE;
 			break;
 	}
-	close(data->pipe[1]); // close pipe write end
 
 	close_listen_fd:
+	close(data->pipe[1]); // close pipe write end
 	close(listen_fd);
+	// reset errno caused by potentionaly closing socket with invalid FD
+	errno = 0;
 	return exit_code;
 }

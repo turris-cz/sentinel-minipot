@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Pipeline integration tests
 - Doc comments
 - Throughput integration tests
+- Logging
 
 ### Removed
 - Manual proxy - moved to Proxy repo

@@ -30,6 +30,7 @@
 #include "minipot_pipe.h"
 #include "http_header.gperf.c"
 #include "http_tr_enc.gperf.c"
+#include "log.h"
 
 #define MAX_CONN_COUNT 5
 #define INACT_TOUT 20
@@ -132,6 +133,7 @@ static char *dcode_buff;
 static int dcoded_data_len;
 
 static void free_conn_data(struct conn_data *conn_data) {
+	TRACE_FUNC;
 	free(conn_data->ipaddr_str);
 	free(conn_data->token_buff);
 	free(conn_data->method);
@@ -144,6 +146,7 @@ static void free_conn_data(struct conn_data *conn_data) {
 }
 
 static int alloc_conn_data(struct conn_data *conn_data) {
+	TRACE_FUNC;
 	conn_data->read_ev = event_new(NULL, 0, 0, NULL, NULL);
 	if (conn_data->read_ev == NULL)
 		goto err1;
@@ -203,11 +206,13 @@ static int alloc_conn_data(struct conn_data *conn_data) {
 }
 
 static void free_conn_data_pool(size_t size, struct conn_data *conn_data) {
+	TRACE_FUNC;
 	for (size_t i = 0; i < size; i++)
 		free_conn_data(&conn_data[i]);
 }
 
 static int alloc_conn_data_pool(struct conn_data **conn_data) {
+	TRACE_FUNC;
 	struct conn_data *data = malloc(sizeof(*data) * MAX_CONN_COUNT);
 	for (size_t i = 0; i < MAX_CONN_COUNT; i++) {
 		if (alloc_conn_data(&data[i]) != 0) {
@@ -220,6 +225,7 @@ static int alloc_conn_data_pool(struct conn_data **conn_data) {
 }
 
 static int alloc_glob_res() {
+	TRACE_FUNC;
 	ev_base = event_base_new();
 	if (ev_base == NULL)
 		goto err1;
@@ -255,10 +261,12 @@ static int alloc_glob_res() {
 	event_base_free(ev_base);
 
 	err1:
+	ERROR("Couldn't allocate global resources");
 	return -1;
 }
 
 static void free_glob_res() {
+	TRACE_FUNC;
 	event_free(accept_ev);
 	free_conn_data_pool(MAX_CONN_COUNT, conn_data_pool);
 	event_base_free(ev_base);
@@ -268,11 +276,13 @@ static void free_glob_res() {
 }
 
 static void reset_token_buff(struct conn_data *conn_data) {
+	TRACE_FUNC_FD(conn_data->fd);
 	conn_data->token_buff_wrt_ptr = conn_data->token_buff;
 	conn_data->token_buff_free_len = TOKEN_BUFF_LEN;
 }
 
 static void reset_mesg_limits(struct conn_data *conn_data) {
+	TRACE_FUNC_FD(conn_data->fd);
 	conn_data->state = PROC_REQ_LINE;
 	conn_data->method_len = 0;
 	conn_data->url_len = 0;
@@ -286,6 +296,7 @@ static void reset_mesg_limits(struct conn_data *conn_data) {
 }
 
 static inline void reset_conn_data(struct conn_data *conn_data) {
+	TRACE_FUNC_FD(conn_data->fd);
 	reset_mesg_limits(conn_data);
 	conn_data->msg_cnt = 0;
 	memset(conn_data->ipaddr_str, 0, sizeof(*conn_data->ipaddr_str) * IP_ADDR_LEN);
@@ -293,6 +304,7 @@ static inline void reset_conn_data(struct conn_data *conn_data) {
 }
 
 static struct conn_data *get_conn_data(int fd) {
+	TRACE_FUNC_FD(fd);
 	struct conn_data *ret = NULL;
 	size_t i = 0;
 	for (; i < MAX_CONN_COUNT; i++) {
@@ -312,29 +324,28 @@ static struct conn_data *get_conn_data(int fd) {
 }
 
 static void close_conn(struct conn_data *conn_data) {
-	DEBUG_PRINT("http - closed connection, fd: %d\n",conn_data->fd);
+	TRACE_FUNC_FD(conn_data->fd);
 	event_del(conn_data->read_ev);
 	event_del(conn_data->keep_alive_tout_ev);
 	event_del(conn_data->inac_tout_ev);
+	INFO("Connection with FD: %d was closed",conn_data->fd);
 	close(conn_data->fd);
 	conn_data->fd = -1;
 	event_add(accept_ev, NULL);
 }
 
 static inline int send_resp(struct conn_data *conn_data, char *mesg) {
-	if (send_all(conn_data->fd, mesg, strlen(mesg)) != 0) {
-		DEBUG_PRINT("http - error - could not send to peer\n");
+	TRACE_FUNC_FD(conn_data->fd);
+	if (send_all(conn_data->fd, mesg, strlen(mesg)) != 0)
 		return -1;
-	} else {
-		return 0;
-	}
+	return 0;
 }
 
 /*
  * Allocates exact needed amount of memory and fills buffer with string time representation
  */
 static void fill_time(char **buff) {
-	DEBUG_PRINT("http - fill time\n");
+	TRACE_FUNC;
 	time_t rawtime;
 	time(&rawtime);
 	struct tm *timeinfo = gmtime(&rawtime);
@@ -344,7 +355,7 @@ static void fill_time(char **buff) {
 }
 
 static int send_bad_req(struct conn_data *conn_data) {
-	DEBUG_PRINT("http - send bad req\n");
+	TRACE_FUNC_FD(conn_data->fd);
 	char *time_str;
 	fill_time(&time_str);
 	char *mesg;
@@ -356,7 +367,7 @@ static int send_bad_req(struct conn_data *conn_data) {
 }
 
 static int send_uri_too_long(struct conn_data *conn_data) {
-	DEBUG_PRINT("http - send uri too long\n");
+	TRACE_FUNC_FD(conn_data->fd);
 	char *time_str;
 	fill_time(&time_str);
 	char *mesg;
@@ -368,7 +379,7 @@ static int send_uri_too_long(struct conn_data *conn_data) {
 }
 
 static int send_unauth(struct conn_data *conn_data) {
-	DEBUG_PRINT("http - send unauth\n");
+	TRACE_FUNC_FD(conn_data->fd);
 	char *time_str;
 	fill_time(&time_str);
 	char *mesg;
@@ -386,15 +397,16 @@ static int send_unauth(struct conn_data *conn_data) {
 		} \
 	} while (0)
 
-static inline void report(struct proxy_msg *proxy_msg, const char *err_msg) {
+static inline void report(struct proxy_msg *proxy_msg) {
+	TRACE_FUNC;
 	if (proxy_report(report_fd, proxy_msg) !=0) {
-		DEBUG_PRINT("%s", err_msg);
 		exit_code = EXIT_FAILURE;
 		event_base_loopbreak(ev_base);
 	}
 };
 
 static void report_connect(struct conn_data *conn_data) {
+	TRACE_FUNC_FD(conn_data->fd);
 	struct proxy_msg msg = {
 		.ts = time(NULL),
 		.type = TYPE,
@@ -403,10 +415,11 @@ static void report_connect(struct conn_data *conn_data) {
 		.data = NULL,
 		.data_len = 0,
 	};
-	report(&msg, "http - error - couldn't report connect\n");
+	report(&msg);
 }
 
 static void report_invalid(struct conn_data *conn_data) {
+	TRACE_FUNC_FD(conn_data->fd);
 	struct proxy_msg msg = {
 		.ts = time(NULL),
 		.type = TYPE,
@@ -415,10 +428,11 @@ static void report_invalid(struct conn_data *conn_data) {
 		.data = NULL,
 		.data_len = 0,
 	};
-	report(&msg, "http - error - couldn't report invalid\n");
+	report(&msg);
 }
 
 static void report_message(struct conn_data *conn_data) {
+	TRACE_FUNC_FD(conn_data->fd);
 	if (check_serv_data(conn_data->url, conn_data->url_len) ||
 		check_serv_data(conn_data->user_ag, conn_data->user_ag_len)) {
 		report_invalid(conn_data);
@@ -439,11 +453,12 @@ static void report_message(struct conn_data *conn_data) {
 	};
 	// method, url + optional user
 	msg.data_len = conn_data->user_ag_len == 0 ? 2 : 3;
-	report(&msg, "http - error - couldn't report message\n");
+	report(&msg);
 }
 
 static void report_login(struct conn_data *conn_data, char *username, size_t username_len,
 							char *password, size_t password_len) {
+	TRACE_FUNC_FD(conn_data->fd);
 	if (username_len == 0 ||
 		check_serv_data(username, username_len) ||
 		check_serv_data(password, password_len) ||
@@ -469,7 +484,7 @@ static void report_login(struct conn_data *conn_data, char *username, size_t use
 	};
 	// method, url, username, password + optional user agent
 	msg.data_len = conn_data->user_ag_len == 0 ? 4 : 5;
-	report(&msg, "http - error - couldn't report login\n");
+	report(&msg);
 }
 
 /*
@@ -477,7 +492,7 @@ Return length of the trailing white spaces in the end of the string.
 Returns at most len.
 */
 size_t get_trail_ws_len(uint8_t *str, size_t len) {
-	assert(str != NULL);
+	TRACE_FUNC;
 	size_t ws_len = 0;
 	for (size_t i = 0; i < len; i++)
 		if (str[len - i - 1] != SP && str[len - i - 1] != HT)
@@ -492,7 +507,7 @@ Return length of the preceding whitespaces at the beginning of string.
 Returns at most len.
 */
 size_t get_prec_ws_len(uint8_t *str, size_t len) {
-	assert(str != NULL);
+	TRACE_FUNC;
 	size_t ws_len = 0;
 	for (size_t i = 0; i < len; i++)
 		if (str[i] != SP && str[i] != HT)
@@ -503,6 +518,7 @@ size_t get_prec_ws_len(uint8_t *str, size_t len) {
 }
 
 static inline void skip_bytes(int64_t *to_skip, uint8_t **buff, size_t *bytes_to_proc) {
+	TRACE_FUNC;
 	size_t diff = MY_MIN(*to_skip, *bytes_to_proc);
 	*bytes_to_proc -= diff;
 	*to_skip -= diff;
@@ -510,6 +526,7 @@ static inline void skip_bytes(int64_t *to_skip, uint8_t **buff, size_t *bytes_to
 }
 
 static void proc_auth_data(struct conn_data *conn_data) {
+	TRACE_FUNC_FD(conn_data->fd);
 	uint8_t sep[] = {HT, SP};
 	tokens_cnt = tokenize(conn_data->auth, conn_data->auth_len, tokens, TOKENS_LEN, sep, sizeof(sep) / sizeof(*sep));
 	if (tokens_cnt != 2 ||
@@ -537,7 +554,7 @@ static void proc_auth_data(struct conn_data *conn_data) {
 }
 
 static int on_mesg_end(struct conn_data *conn_data) {
-	DEBUG_PRINT("http - on mesg end\n");
+	TRACE_FUNC_FD(conn_data->fd);
 	if (conn_data->auth_len > 0)
 		proc_auth_data(conn_data);
 	else
@@ -550,7 +567,7 @@ static int on_mesg_end(struct conn_data *conn_data) {
 }
 
 static int proc_chunk(struct conn_data *conn_data, uint8_t **buffer, size_t *bytes_to_proc) {
-	DEBUG_PRINT("http - proc chunk\n");
+	TRACE_FUNC_FD(conn_data->fd);
 	skip_bytes(&conn_data->chunk_size, buffer, bytes_to_proc);
 	if (conn_data->chunk_size == 0)
 		conn_data->state = PROC_CHUNK_END;
@@ -558,7 +575,7 @@ static int proc_chunk(struct conn_data *conn_data, uint8_t **buffer, size_t *byt
 }
 
 static int proc_body(struct conn_data *conn_data, uint8_t **buffer, size_t *bytes_to_proc) {
-	DEBUG_PRINT("http - proc body\n");
+	TRACE_FUNC_FD(conn_data->fd);
 	skip_bytes(&conn_data->con_len, buffer, bytes_to_proc);
 	if (conn_data->con_len == 0)
 		return on_mesg_end(conn_data);
@@ -566,7 +583,7 @@ static int proc_body(struct conn_data *conn_data, uint8_t **buffer, size_t *byte
 }
 
 static int proc_chunk_end(struct conn_data *conn_data) {
-	DEBUG_PRINT("http - proc chunk end\n");
+	TRACE_FUNC_FD(conn_data->fd);
 	size_t token_len = TOKEN_BUFF_LEN - conn_data->token_buff_free_len;
 	// must be empty line
 	FLOW_GUARD_WITH_RESP(token_len != 0, conn_data);
@@ -575,7 +592,7 @@ static int proc_chunk_end(struct conn_data *conn_data) {
 }
 
 static int check_method(uint8_t *method, size_t len) {
-	DEBUG_PRINT("http - check method\n");
+	TRACE_FUNC;
 	for (size_t i = 0; i < len; i++)
 		if (method[i] <= 32 || method[i] >= 127 )
 			return -1;
@@ -583,7 +600,7 @@ static int check_method(uint8_t *method, size_t len) {
 }
 
 static int check_url(uint8_t *url, size_t len) {
-	DEBUG_PRINT("http - check url\n");
+	TRACE_FUNC;
 	for (size_t i = 0; i < len; i++)
 		if (url[i] <= 32 || url[i] == 127 )
 			return -1;
@@ -591,7 +608,7 @@ static int check_url(uint8_t *url, size_t len) {
 }
 
 static int check_version(uint8_t *version, size_t len) {
-	DEBUG_PRINT("http - check version\n");
+	TRACE_FUNC;
 	if (len != 8 ||
 		strncmp(version, HTTP_VERSION, strlen(HTTP_VERSION)) != 0 ||
 		version[5] < '0' || version[5] > '9' ||
@@ -602,7 +619,7 @@ static int check_version(uint8_t *version, size_t len) {
 }
 
 static int proc_req_line(struct conn_data *conn_data) {
-	DEBUG_PRINT("http - proc req line\n");
+	TRACE_FUNC_FD(conn_data->fd);
 	size_t token_len = TOKEN_BUFF_LEN - conn_data->token_buff_free_len;
 	uint8_t *first_sp = memchr(conn_data->token_buff, SP, token_len);
 	FLOW_GUARD_WITH_RESP(first_sp == NULL, conn_data);
@@ -628,7 +645,7 @@ static int proc_req_line(struct conn_data *conn_data) {
 }
 
 static int check_header_name(uint8_t *name, size_t len) {
-	DEBUG_PRINT("http - check header name\n");
+	TRACE_FUNC;
 	for (size_t i = 0; i < len; i++)
 		if (name[i] <= 32 || name[i] >= 127 || name[i] == 34 || name[i] == 40 ||
 			name[i] == 41 || name[i] == 44 || name[i] == 47 ||
@@ -639,7 +656,7 @@ static int check_header_name(uint8_t *name, size_t len) {
 }
 
 static int check_header_val(uint8_t *val, size_t len) {
-	DEBUG_PRINT("http - check header val\n");
+	TRACE_FUNC;
 	for (size_t i = 0; i < len; i++)
 		if ((val[i] <= 8) || (val[i] >= 10 && val[i] <= 31) || val[i] == 127)
 			return -1;
@@ -647,7 +664,7 @@ static int check_header_val(uint8_t *val, size_t len) {
 }
 
 static int proc_con_len_head(struct conn_data *conn_data, uint8_t *val, size_t len) {
-	DEBUG_PRINT("http - proc con len head\n");
+	TRACE_FUNC_FD(conn_data->fd);
 	if (conn_data->con_len > 0)
 		// the value has been already assigned - error
 		conn_data->con_len = -1;
@@ -672,7 +689,7 @@ static int proc_con_len_head(struct conn_data *conn_data, uint8_t *val, size_t l
 }
 
 static int proc_trans_enc_head(struct conn_data *conn_data, uint8_t *val, size_t len) {
-	DEBUG_PRINT("http - proc trans enc head\n");
+	TRACE_FUNC_FD(conn_data->fd);
 	conn_data->trans_enc_head_received = true;
 	uint8_t sep[] = {HT, SP, COMMA};
 	tokens_cnt = tokenize(val, len, tokens, TOKENS_LEN, sep, sizeof(sep) / sizeof(*sep));
@@ -682,7 +699,7 @@ static int proc_trans_enc_head(struct conn_data *conn_data, uint8_t *val, size_t
 }
 
 static int proc_auth_head(struct conn_data *conn_data, uint8_t *val, size_t len) {
-	DEBUG_PRINT("http - proc auth head\n");
+	TRACE_FUNC_FD(conn_data->fd);
 	uint8_t *val_start_ptr = val;
 	size_t val_len = len;
 	size_t prec_ws_len = get_prec_ws_len(val_start_ptr, val_len);
@@ -695,7 +712,7 @@ static int proc_auth_head(struct conn_data *conn_data, uint8_t *val, size_t len)
 }
 
 static int proc_user_ag_head(struct conn_data *conn_data, uint8_t *val, size_t len) {
-	DEBUG_PRINT("http - proc user ag head\n");
+	TRACE_FUNC_FD(conn_data->fd);
 	uint8_t *val_start_ptr = val;
 	size_t val_len = len;
 	size_t prec_ws_len = get_prec_ws_len(val_start_ptr, val_len);
@@ -708,7 +725,7 @@ static int proc_user_ag_head(struct conn_data *conn_data, uint8_t *val, size_t l
 }
 
 static int proc_header(struct conn_data *conn_data) {
-	DEBUG_PRINT("http - proc header\n");
+	TRACE_FUNC_FD(conn_data->fd);
 	size_t token_len = TOKEN_BUFF_LEN - conn_data->token_buff_free_len;
 	if (token_len == 0) {
 		// empty line
@@ -761,7 +778,8 @@ static int proc_header(struct conn_data *conn_data) {
 				case TRANSFER_ENCODING:
 					return proc_trans_enc_head(conn_data, header_val_str, header_val_str_len);
 				default:
-					DEBUG_PRINT("http - error - proc header default\n");
+					ERROR("Invalid header name on connection with FD: %d",
+						conn_data->fd);
 					return -1;
 			}
 		}
@@ -770,7 +788,7 @@ static int proc_header(struct conn_data *conn_data) {
 }
 
 static int check_chunk_size_ext(uint8_t *ext,  size_t len) {
-	DEBUG_PRINT("http - check chunk size xt\n");
+	TRACE_FUNC;
 	for (size_t i = 0; i < len; i++)
 		if (ext[i] < 32 || ext[i] >= 127 )
 			return -1;
@@ -778,7 +796,7 @@ static int check_chunk_size_ext(uint8_t *ext,  size_t len) {
 }
 
 static int proc_chunk_size(struct conn_data *conn_data) {
-	DEBUG_PRINT("http - proc chunk size\n");
+	TRACE_FUNC_FD(conn_data->fd);
 	size_t token_len = TOKEN_BUFF_LEN - conn_data->token_buff_free_len;
 	FLOW_GUARD_WITH_RESP(token_len == 0, conn_data);
 	size_t chunk_size_str_len = token_len;
@@ -807,7 +825,7 @@ static int proc_chunk_size(struct conn_data *conn_data) {
 }
 
 static int proc_trailer(struct conn_data *conn_data) {
-	DEBUG_PRINT("http - proc trailer\n");
+	TRACE_FUNC_FD(conn_data->fd);
 	size_t token_len = TOKEN_BUFF_LEN - conn_data->token_buff_free_len;
 	if (token_len == 0) {
 		// end of message
@@ -831,7 +849,7 @@ static int proc_trailer(struct conn_data *conn_data) {
 }
 
 static int proc_line(struct conn_data *conn_data, uint8_t **buffer, size_t *bytes_to_proc) {
-	DEBUG_PRINT("http - proc line\n");
+	TRACE_FUNC_FD(conn_data->fd);
 	uint8_t *line_sep = memchr(*buffer, LF, *bytes_to_proc);
 	size_t bytes_to_buff = line_sep != NULL ? (line_sep - *buffer + 1) : *bytes_to_proc;
 	if (bytes_to_buff <= conn_data->token_buff_free_len) {
@@ -861,7 +879,7 @@ static int proc_line(struct conn_data *conn_data, uint8_t **buffer, size_t *byte
 					FLOW_GUARD(proc_chunk_end(conn_data));
 					break;
 				default:
-					DEBUG_PRINT("http - proc line - default 1\n");
+					ERROR("Invalid state on connection with FD: %d", conn_data->fd);
 					return -1;
 			}
 			reset_token_buff(conn_data);
@@ -877,6 +895,9 @@ static int proc_line(struct conn_data *conn_data, uint8_t **buffer, size_t *byte
 			case PROC_CHUNK_END:
 				send_bad_req(conn_data);
 				break;
+			default:
+				ERROR("Invalid state on connection with FD: %d", conn_data->fd);
+				break;
 		}
 		return -1;
 	}
@@ -886,7 +907,7 @@ static int proc_line(struct conn_data *conn_data, uint8_t **buffer, size_t *byte
 }
 
 static void proc_bytes(struct conn_data *conn_data, uint8_t *buff, size_t buff_len) {
-	DEBUG_PRINT("http - proc bytes - start\n");
+	TRACE_FUNC_P("FD: %d - start", conn_data->fd);
 	bool run = true;
 	while (buff_len > 0 && run) {
 		switch (conn_data->state) {
@@ -913,30 +934,30 @@ static void proc_bytes(struct conn_data *conn_data, uint8_t *buff, size_t buff_l
 				}
 				break;
 			default:
-				DEBUG_PRINT("http - proc bytes - default\n");
+				ERROR("Invalid state on connection with FD: %d", conn_data->fd);
 				close_conn(conn_data);
 				run = false;
 				break;
 		}
 	}
-	DEBUG_PRINT("http - proc bytes - end\n");
+	TRACE_FUNC_P("FD: %d - stop", conn_data->fd);
 }
 
 static void on_timeout(int fd, short ev, void *arg){
-	DEBUG_PRINT("http - timeout\n");
+	TRACE_FUNC_FD(fd);
 	struct conn_data *conn_data = (struct conn_data *)arg;
 	close_conn(conn_data);
 }
 
 static void on_recv(int fd, short ev, void *arg) {
-	DEBUG_PRINT("http - on receive\n");
+	TRACE_FUNC_FD(fd);
 	struct conn_data *conn_data = (struct conn_data *)arg;
 	ssize_t amount = recv(fd, read_buff, BUFSIZ, 0);
 	switch (amount) {
 		case -1:
 			if (errno == EAGAIN)
 				return;
-			DEBUG_PRINT("http - error on connection %d: %s\n", fd, strerror(errno));
+			INFO("Receive error on connection with FD: %d", fd);
 		case 0:
 			close_conn(conn_data);
 			return;
@@ -949,28 +970,25 @@ static void on_recv(int fd, short ev, void *arg) {
 }
 
 static void on_accept(int listen_fd, short ev, void *arg) {
-	DEBUG_PRINT("http - on accept\n");
+	TRACE_FUNC;
 	struct sockaddr_storage conn_addr;
 	socklen_t conn_addr_len = sizeof(conn_addr);
 	int conn_fd = accept(listen_fd, (struct sockaddr *)&conn_addr, &conn_addr_len);
 	if (conn_fd < 0) {
-		DEBUG_PRINT("http - error - accept\n");
+		INFO("No free conn_data slots. Refusing connection");
 		return;
 	}
 	if (setnonblock(conn_fd) != 0) {
-		DEBUG_PRINT("http - error - couldnt set nonblock\n");
 		close(conn_fd);
 		return;
 	}
 	struct conn_data *conn_data = get_conn_data(conn_fd);
 	if (conn_data == NULL) {
-		DEBUG_PRINT("http - accept - no free slots\n");
-		// no free slots
+		INFO("No free conn_data slots. Closing connection with FD :%d", conn_fd);
 		close(conn_fd);
 		return;
 	}
 	if (sockaddr_to_string(&conn_addr, conn_data->ipaddr_str) != 0) {
-		DEBUG_PRINT("http - sock addr to string - unknown socket family\n");
 		exit_code = EXIT_FAILURE;
 		event_base_loopbreak(ev_base);
 		return;
@@ -982,21 +1000,20 @@ static void on_accept(int listen_fd, short ev, void *arg) {
 	evtimer_add(conn_data->inac_tout_ev, &tm);
 	evtimer_assign(conn_data->keep_alive_tout_ev, ev_base, on_timeout, conn_data);
 	report_connect(conn_data);
-	DEBUG_PRINT("http - accepted connection %d\n", conn_data->fd);
+	INFO("Accepted connection with FD: %d", conn_data->fd);
 }
 
 int handle_http(int listen_fd, int pipe_write_fd) {
+	TRACE_FUNC;
 	exit_code = EXIT_SUCCESS;
 	report_fd = pipe_write_fd;
-	// to supress evenet base logging
+	// to supress event base logging
 	event_set_log_callback(ev_base_discard_cb);
-	if (alloc_glob_res() != 0 ) {
-		DEBUG_PRINT("http - error - couldn't allocate global resources\n");
+	if (alloc_glob_res() != 0 )
 		return EXIT_FAILURE;
-	}
 	struct event *sigint_ev = event_new(ev_base, SIGINT, EV_SIGNAL, on_sigint, ev_base);
 	if (sigint_ev == NULL) {
-		DEBUG_PRINT("http - error - couldn't allocate sigint ev\n");
+		ERROR("Couldn't create sigint event");
 		exit_code = EXIT_FAILURE;
 		goto sigint_ev_err;
 	}

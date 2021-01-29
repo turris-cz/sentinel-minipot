@@ -27,6 +27,7 @@
 #include "minipot_pipe.h"
 #include "smtp_commands.gperf.c"
 #include "sasl_mechanisms.gperf.c"
+#include "log.h"
 
 #define MAX_CONN_COUNT 5
 #define CONN_TIMEOUT (60 * 5)
@@ -151,6 +152,7 @@ static size_t tokens_cnt;
 static char host_name[HOSTNAME_LEN] = {};
 
 static void free_conn_data(struct conn_data *conn_data) {
+	TRACE_FUNC;
 	free(conn_data->ipaddr_str);
 	free(conn_data->token_buff);
 	free(conn_data->log_user);
@@ -160,6 +162,7 @@ static void free_conn_data(struct conn_data *conn_data) {
 }
 
 static int alloc_conn_data(struct conn_data *conn_data) {
+	TRACE_FUNC;
 	conn_data->read_ev = event_new(NULL, 0, 0, NULL, NULL);
 	if (conn_data->read_ev == NULL)
 		goto err1;
@@ -201,11 +204,13 @@ static int alloc_conn_data(struct conn_data *conn_data) {
 }
 
 static void free_conn_data_pool(size_t size, struct conn_data *conn_data) {
+	TRACE_FUNC;
 	for (size_t i = 0; i < size; i++)
 		free_conn_data(&conn_data[i]);
 }
 
 static int alloc_conn_data_pool(struct conn_data **conn_data) {
+	TRACE_FUNC;
 	struct conn_data *data = malloc(sizeof(*data) * MAX_CONN_COUNT);
 	for (size_t i = 0; i < MAX_CONN_COUNT; i++) {
 		if (alloc_conn_data(&data[i]) != 0) {
@@ -218,6 +223,7 @@ static int alloc_conn_data_pool(struct conn_data **conn_data) {
 }
 
 static int alloc_glob_res() {
+	TRACE_FUNC;
 	ev_base = event_base_new();
 	if (ev_base == NULL)
 		goto err1;
@@ -253,10 +259,12 @@ static int alloc_glob_res() {
 	event_base_free(ev_base);
 
 	err1:
+	ERROR("Couldn't allocate global resources");
 	return -1;
 }
 
 static void free_glob_res() {
+	TRACE_FUNC;
 	event_free(accept_ev);
 	free_conn_data_pool(MAX_CONN_COUNT, conn_data_pool);
 	event_base_free(ev_base);
@@ -266,11 +274,13 @@ static void free_glob_res() {
 }
 
 static void rset_token_buff(struct conn_data *conn_data) {
+	TRACE_FUNC_FD(conn_data->fd);
 	conn_data->token_buff_wrt_ptr = conn_data->token_buff;
 	conn_data->token_buff_free_space = TOKEN_BUFF_LEN;
 }
 
 static void reset_conn_data(struct conn_data *conn_data) {
+	TRACE_FUNC_FD(conn_data->fd);
 	conn_data->error_cnt = 0;
 	conn_data->prot_state = EXPECT_HELO;
 	conn_data->log_user_len = 0;
@@ -279,6 +289,7 @@ static void reset_conn_data(struct conn_data *conn_data) {
 }
 
 static struct conn_data *get_conn_data(int fd) {
+	TRACE_FUNC_FD(fd);
 	struct conn_data *ret = NULL;
 	size_t i = 0;
 	for (; i < MAX_CONN_COUNT; i++) {
@@ -298,28 +309,29 @@ static struct conn_data *get_conn_data(int fd) {
 }
 
 static void close_conn(struct conn_data *conn_data) {
-	DEBUG_PRINT("smtp - closed connection, fd: %d\n",conn_data->fd);
+	TRACE_FUNC_FD(conn_data->fd);
 	event_del(conn_data->read_ev);
 	event_del(conn_data->con_tout_ev);
 	event_del(conn_data->inac_tout_ev);
+	INFO("Connection with FD: %d was closed",conn_data->fd);
 	close(conn_data->fd);
 	conn_data->fd = -1;
 	event_add(accept_ev, NULL);
 }
 
 static inline int send_resp(struct conn_data *conn_data, char *mesg) {
-	if (send_all(conn_data->fd, mesg, strlen(mesg)) != 0) {
-		DEBUG_PRINT("smtp - error - could not send to peer\n");
+	TRACE_FUNC_FD(conn_data->fd);
+	if (send_all(conn_data->fd, mesg, strlen(mesg)) != 0)
 		return -1;
-	} else {
-		return 0;
-	}
+	return 0;
 }
 
 static int error_incr(struct conn_data *conn_data) {
+	TRACE_FUNC_FD(conn_data->fd);
 	conn_data->error_cnt++;
 	if (conn_data->error_cnt == ERROR_LIMIT) {
-		DEBUG_PRINT("smtp - error limit reached\n");
+		INFO("Login attempt limit was reached on connection with FD: %d",
+			conn_data->fd);
 		char *mesg;
 		concat_mesg(&mesg, 3, TOO_MUCH_ERR_RESP_PART1, host_name, TOO_MUCH_ERR_RESP_PART2);
 		send_resp(conn_data, mesg);
@@ -331,19 +343,21 @@ static int error_incr(struct conn_data *conn_data) {
 }
 
 static inline int send_and_err_incr(struct conn_data *conn_data, char *mesg) {
+	TRACE_FUNC_FD(conn_data->fd);
 	FLOW_GUARD(send_resp(conn_data, mesg));
 	return error_incr(conn_data);
 }
 
-static inline void report(struct proxy_msg *proxy_msg, const char *err_msg) {
+static inline void report(struct proxy_msg *proxy_msg) {
+	TRACE_FUNC;
 	if (proxy_report(report_fd, proxy_msg) !=0) {
-		DEBUG_PRINT("%s", err_msg);
 		exit_code = EXIT_FAILURE;
 		event_base_loopbreak(ev_base);
 	}
 };
 
 static void report_connect(struct conn_data *conn_data) {
+	TRACE_FUNC_FD(conn_data->fd);
 	struct proxy_msg msg = {
 		.ts = time(NULL),
 		.type = TYPE,
@@ -352,10 +366,11 @@ static void report_connect(struct conn_data *conn_data) {
 		.data = NULL,
 		.data_len = 0,
 	};
-	report(&msg, "smtp - error - couldn't report connect\n");
+	report(&msg);
 }
 
 static void report_invalid(struct conn_data *conn_data) {
+	TRACE_FUNC_FD(conn_data->fd);
 	struct proxy_msg msg = {
 		.ts = time(NULL),
 		.type = TYPE,
@@ -364,10 +379,11 @@ static void report_invalid(struct conn_data *conn_data) {
 		.data = NULL,
 		.data_len = 0,
 	};
-	report(&msg, "smtp - error - couldn't report invalid\n");
+	report(&msg);
 }
 
 static void report_login_login(struct conn_data *conn_data) {
+	TRACE_FUNC_FD(conn_data->fd);
 	if (check_serv_data(conn_data->log_user, conn_data->log_user_len) ||
 		check_serv_data(dcode_buff, dcoded_data_len)) {
 		report_invalid(conn_data);
@@ -387,10 +403,11 @@ static void report_login_login(struct conn_data *conn_data) {
 		.action = LOGIN_EV,
 		.data_len = sizeof(data) / sizeof(*data),
 	};
-	report(&msg, "smtp - error - couldn't report login login\n");
+	report(&msg);
 }
 
 static void report_login_plain(struct conn_data *conn_data) {
+	TRACE_FUNC_FD(conn_data->fd);
 	char *authzid = dcode_buff;
 	// find first null
 	char *null_byte = memchr(authzid, NUL, dcoded_data_len);
@@ -422,7 +439,7 @@ static void report_login_plain(struct conn_data *conn_data) {
 		.action = LOGIN_EV,
 		.data_len = sizeof(data) / sizeof(*data),
 	};
-	report(&msg, "smtp - error - couldn't report login plain\n");
+	report(&msg);
 	return;
 	err:
 	report_invalid(conn_data);
@@ -430,24 +447,24 @@ static void report_login_plain(struct conn_data *conn_data) {
 
 
 static int vrfy_cmd(struct conn_data *conn_data) {
-	DEBUG_PRINT("smtp - vrfy cmd\n");
+	TRACE_FUNC_FD(conn_data->fd);
 	return send_and_err_incr(conn_data, VRFY_RESP);
 }
 
 static int noop_cmd(struct conn_data *conn_data) {
-	DEBUG_PRINT("smtp - noop cmd\n");
+	TRACE_FUNC_FD(conn_data->fd);
 	FLOW_GUARD(send_resp(conn_data, OK_RESP));
 	return 0;
 }
 
 static int quit_cmd(struct conn_data *conn_data) {
-	DEBUG_PRINT("smtp - quit cmd\n");
+	TRACE_FUNC_FD(conn_data->fd);
 	send_resp(conn_data, QUIT_RESP);
 	return -1;
 }
 
 static int ehlo_cmd(struct conn_data *conn_data) {
-	DEBUG_PRINT("smtp - ehlo cmd\n");
+	TRACE_FUNC_FD(conn_data->fd);
 	if (tokens_cnt > 1) {
 		conn_data->prot_state = HELO_SENT;
 		char *mesg;
@@ -461,7 +478,7 @@ static int ehlo_cmd(struct conn_data *conn_data) {
 }
 
 static int helo_cmd(struct conn_data *conn_data) {
-	DEBUG_PRINT("smtp - helo cmd\n");
+	TRACE_FUNC_FD(conn_data->fd);
 	if (tokens_cnt > 1 ) {
 		conn_data->prot_state = HELO_SENT;
 		char *mesg;
@@ -475,7 +492,7 @@ static int helo_cmd(struct conn_data *conn_data) {
 }
 
 static int rset_cmd(struct conn_data *conn_data) {
-	DEBUG_PRINT("smtp - rset cmd\n");
+	TRACE_FUNC_FD(conn_data->fd);
 	if (tokens_cnt > 1) {
 		return send_and_err_incr(conn_data, RSET_501_RESP);
 	} else {
@@ -486,7 +503,7 @@ static int rset_cmd(struct conn_data *conn_data) {
 }
 
 static int data_cmd(struct conn_data *conn_data) {
-	DEBUG_PRINT("smtp - data cmd\n");
+	TRACE_FUNC_FD(conn_data->fd);
 	switch (conn_data->prot_state) {
 		case EXPECT_HELO:
 		case HELO_SENT:
@@ -494,16 +511,17 @@ static int data_cmd(struct conn_data *conn_data) {
 		case HELO_MAIL_SENT:
 			return send_and_err_incr(conn_data, DATA_554_RESP);
 		default:
-			DEBUG_PRINT("smtp - ehlo cmd - default\n");
+			ERROR("Invalid protocol state on connection with FD: %d",
+				conn_data->fd);
 			return -1;
 	}
 }
 
 static int mail_cmd_helo_sent_params(struct conn_data *conn_data) {
-	DEBUG_PRINT("smtp - mail cmd helo sent params\n");
+	TRACE_FUNC_FD(conn_data->fd);
 	// at least 2 tokens
 	if (tokens_cnt < 2) {
-		DEBUG_PRINT("smtp - mail cmd helo sent tokens cnt < 2 ");
+		TRACE_FUNC_P("FD: %d - tokens count is less than two", conn_data->fd);
 		return -1;
 	} else {
 		if ((tokens[1].len) < strlen(MAIL_FROM_STR)) {
@@ -534,11 +552,11 @@ static int mail_cmd_helo_sent_params(struct conn_data *conn_data) {
 }
 
 static int mail_cmd_helo_sent(struct conn_data *conn_data) {
-	DEBUG_PRINT("smtp - mail cmd helo sent\n");
+	TRACE_FUNC_FD(conn_data->fd);
 	// tokens cnt at least 1
 	switch (tokens_cnt) {
 		case 0:
-			DEBUG_PRINT("smtp - mail cmd helo sent tokens cnt is 0\n");
+			TRACE_FUNC_P("FD: %d - tokens count is zero", conn_data->fd);
 			return -1;
 		case 1:
 			// missing from:
@@ -549,7 +567,7 @@ static int mail_cmd_helo_sent(struct conn_data *conn_data) {
 }
 
 static int mail_cmd(struct conn_data *conn_data) {
-	DEBUG_PRINT("smtp - mail cmd\n");
+	TRACE_FUNC_FD(conn_data->fd);
 	switch (conn_data->prot_state) {
 		case EXPECT_HELO:
 			return send_and_err_incr(conn_data,MAIL_EXPECT_HELO_RESP);
@@ -558,16 +576,17 @@ static int mail_cmd(struct conn_data *conn_data) {
 		case HELO_MAIL_SENT:
 			return send_and_err_incr(conn_data, MAIL_HELO_MAIL_RESP);
 		default:
-			DEBUG_PRINT("smtp - mail cmd - default\n");
+			ERROR("Invalid protocol state on connection with FD: %d",
+				conn_data->fd);
 			return -1;
 	}
 }
 
 static int rcpt_cmd_helo_mail_sent_params(struct conn_data *conn_data) {
-	DEBUG_PRINT("smtp - rcpt cmd helo mail sent params\n");
+	TRACE_FUNC_FD(conn_data->fd);
 	// at least 2 tokens
 	if (tokens_cnt < 2) {
-		DEBUG_PRINT("smtp - rcpt cmd helo mail sent tokens cnt < 2 ");
+		TRACE_FUNC_P("FD: %d - tokens count is less than two", conn_data->fd);
 		return -1;
 	} else {
 		if ((tokens[1].len) < strlen(RCPT_TO_STR)) {
@@ -604,11 +623,11 @@ static int rcpt_cmd_helo_mail_sent_params(struct conn_data *conn_data) {
 }
 
 static int rcpt_cmd_helo_mail_sent(struct conn_data *conn_data) {
-   DEBUG_PRINT("smtp - rcpt cmd helo mail sent\n");
+   TRACE_FUNC_FD(conn_data->fd);
 	// tokens cnt at least 1
 	switch (tokens_cnt) {
 		case 0:
-			DEBUG_PRINT("smtp - rcpt cmd helo mail sent tokens cnt is 0\n");
+			TRACE_FUNC_P("FD: %d - tokens count is zero", conn_data->fd);
 			return -1;
 		case 1:
 			// missing to:
@@ -619,7 +638,7 @@ static int rcpt_cmd_helo_mail_sent(struct conn_data *conn_data) {
 }
 
 static int rcpt_cmd(struct conn_data *conn_data) {
-	DEBUG_PRINT("smtp - rctp cmd\n");
+	TRACE_FUNC_FD(conn_data->fd);
 	switch (conn_data->prot_state) {
 		case EXPECT_HELO:
 		case HELO_SENT:
@@ -627,17 +646,18 @@ static int rcpt_cmd(struct conn_data *conn_data) {
 		case HELO_MAIL_SENT:
 			return rcpt_cmd_helo_mail_sent(conn_data);
 		default:
-			DEBUG_PRINT("smtp -rcptcmd - default\n");
+			ERROR("Invalid protocol state on connection with FD: %d",
+				conn_data->fd);
 			return -1;
 	}
 }
 
 static int etrn_cmd_helo_sent(struct conn_data *conn_data) {
-	DEBUG_PRINT("smtp - etrn cmd helo sent\n");
+	TRACE_FUNC_FD(conn_data->fd);
 	// tokens cnt at least 1
 	switch (tokens_cnt) {
 		case 0:
-			DEBUG_PRINT("smtp - etrn cmd helo sent tokens cnt is 0\n");
+			TRACE_FUNC_P("FD: %d - tokens count is zero", conn_data->fd);
 			return -1;
 		case 1:
 			// missing param:
@@ -656,7 +676,7 @@ static int etrn_cmd_helo_sent(struct conn_data *conn_data) {
 }
 
 static int etrn_cmd(struct conn_data *conn_data) {
-	DEBUG_PRINT("smtp - etrn cmd\n");
+	TRACE_FUNC_FD(conn_data->fd);
 	switch (conn_data->prot_state) {
 		case EXPECT_HELO:
 			return send_and_err_incr(conn_data, ETRN_EXPECT_HELO_RESP);
@@ -665,13 +685,14 @@ static int etrn_cmd(struct conn_data *conn_data) {
 		case HELO_MAIL_SENT:
 			return send_and_err_incr(conn_data, ETRN_HELO_MAIL_RESP);
 		default:
-			DEBUG_PRINT("smtp - error - etrn cmd - default");
+			ERROR("Invalid protocol state on connection with FD: %d",
+				conn_data->fd);
 			return -1;
 	}
 }
 
 static int auth_cmd_helo_sent_init_resp(struct conn_data *conn_data) {
-	DEBUG_PRINT("smtp - auth cmd helo sent init resp\n");
+	TRACE_FUNC_FD(conn_data->fd);
 	struct sasl_mechanism *mech = sasl_mech_lookup(tokens[1].start_ptr, tokens[1].len);
 	if (mech == NULL) {
 		// invalid sasl
@@ -691,7 +712,8 @@ static int auth_cmd_helo_sent_init_resp(struct conn_data *conn_data) {
 					conn_data->log_user_len = (size_t) dcoded_data_len;
 					return send_resp(conn_data, AUTH_LOG_ASK_FOR_PASSW);
 				default:
-					DEBUG_PRINT("smtp - auth cmd No init resp - default\n");
+					ERROR("Invalid SASL mechanism on connection with FD: %d",
+						conn_data->fd);
 					return -1;
 			}
 		} else {
@@ -703,7 +725,7 @@ static int auth_cmd_helo_sent_init_resp(struct conn_data *conn_data) {
 }
 
 static int auth_cmd_helo_sent_only_sasl(struct conn_data *conn_data) {
-	DEBUG_PRINT("smtp - auth cmd helo sent only sasl\n");
+	TRACE_FUNC_FD(conn_data->fd);
 	struct sasl_mechanism *mech = sasl_mech_lookup(tokens[1].start_ptr, tokens[1].len);
 	if (mech == NULL) {
 		// invalid sasl
@@ -718,18 +740,19 @@ static int auth_cmd_helo_sent_only_sasl(struct conn_data *conn_data) {
 				conn_data->prot_state = EXPECT_LOGIN_USER;
 				return send_resp(conn_data, AUTH_LOG_ASK_USER_RESP);
 			default:
-				DEBUG_PRINT("smtp - auth cmd helo sent only sasl - default\n");
+				ERROR("Invalid SASL mechanism on connection with FD: %d",
+					conn_data->fd);
 				return -1;
 		}
 	}
 }
 
 static int auth_cmd_helo_sent(struct conn_data *conn_data) {
-	DEBUG_PRINT("smtp - auth cmd helo sent\n");
+	TRACE_FUNC_FD(conn_data->fd);
 	// tokens cnt is at least 1
 	switch (tokens_cnt) {
 		case 0:
-			DEBUG_PRINT("smtp - auth cmd helo sent - tokens cnt is 0\n");
+			TRACE_FUNC_P("FD: %d - tokens count is zero", conn_data->fd);
 			return -1;
 		case 1:
 			// missing sasl
@@ -747,7 +770,7 @@ static int auth_cmd_helo_sent(struct conn_data *conn_data) {
 }
 
 static int auth_cmd(struct conn_data *conn_data) {
-	DEBUG_PRINT("smtp - auth cmd\n");
+	TRACE_FUNC_FD(conn_data->fd);
 	switch (conn_data->prot_state) {
 		case EXPECT_HELO:
 			return send_and_err_incr(conn_data, AUTH_EXPECT_HELO_RESP);
@@ -756,13 +779,13 @@ static int auth_cmd(struct conn_data *conn_data) {
 		case HELO_MAIL_SENT:
 			return send_and_err_incr(conn_data, AUTH_HELO_MAIL_RESP);
 		default:
-			DEBUG_PRINT("smtp - auth cmd - default\n");
+			ERROR("Invalid protocol state on connection with FD: %d", conn_data->fd);
 			return -1;
 	}
 }
 
 static int proc_cmd(struct conn_data *conn_data) {
-	DEBUG_PRINT("smtp - proc cmd\n");
+	TRACE_FUNC_FD(conn_data->fd);
 	// strip LF
 	conn_data->token_buff_free_space += 1;
 	if (TOKEN_BUFF_LEN == conn_data->token_buff_free_space) {
@@ -803,7 +826,8 @@ static int proc_cmd(struct conn_data *conn_data) {
 					case ETRN:
 						return etrn_cmd(conn_data);
 					default:
-						DEBUG_PRINT("smtp - proc cmd - default\n");
+						ERROR("Invalid command on connection with FD: %d",
+							conn_data->fd);
 						return -1;
 				}
 			}
@@ -812,6 +836,7 @@ static int proc_cmd(struct conn_data *conn_data) {
 }
 
 static int proc_auth_data_empty(struct conn_data *conn_data) {
+	TRACE_FUNC_FD(conn_data->fd);
 	report_invalid(conn_data);
 	switch (conn_data->prot_state) {
 		case EXPECT_PLAIN_DATA:
@@ -824,13 +849,14 @@ static int proc_auth_data_empty(struct conn_data *conn_data) {
 			conn_data->prot_state = HELO_SENT;
 			return send_and_err_incr(conn_data, PROC_DATA_EXPCT_LOG_PASSW_EMPTY_LINE);
 		default:
-			DEBUG_PRINT("smtp - proc auth data empty - default\n");
+			ERROR("Invalid protocol state on connection with FD: %d",
+				conn_data->fd);
 			return -1;
 	}
 }
 
 static int proc_auth_data(struct conn_data *conn_data) {
-	DEBUG_PRINT("smtp - proc auth data\n");
+	TRACE_FUNC_FD(conn_data->fd);
 	// strip LF
 	conn_data->token_buff_free_space += 1;
 	if (TOKEN_BUFF_LEN == conn_data->token_buff_free_space)
@@ -866,7 +892,8 @@ static int proc_auth_data(struct conn_data *conn_data) {
 					conn_data->prot_state = HELO_SENT;
 					return send_and_err_incr(conn_data, PROC_DATA_EXPCT_LOG_PASSW_EMPTY_LINE);
 				default:
-					DEBUG_PRINT("smtp - proc auth data - default\n");
+					ERROR("Invalid protocol state on connection with FD: %d",
+						conn_data->fd);
 					return -1;
 			}
 		} else {
@@ -879,7 +906,7 @@ static int proc_auth_data(struct conn_data *conn_data) {
 }
 
 static int check_prot_state(struct conn_data *conn_data) {
-	DEBUG_PRINT("smtp - check prot state\n");
+	TRACE_FUNC_FD(conn_data->fd);
 	switch (conn_data->prot_state) {
 		case EXPECT_HELO:
 		case HELO_SENT:
@@ -890,13 +917,14 @@ static int check_prot_state(struct conn_data *conn_data) {
 		case EXPECT_LOGIN_PASSW:
 			return proc_auth_data(conn_data);
 		default:
-			DEBUG_PRINT("smtp - check prot state - default\n");
+			ERROR("Invalid protocol state on connection with FD: %d",
+				conn_data->fd);
 			return -1;
 	}
 }
 
 static void proc_bytes(struct conn_data *conn_data, uint8_t *buff, size_t buff_len) {
-	DEBUG_PRINT("smtp - proc bytes - start\n");
+	TRACE_FUNC_P("FD: %d - start", conn_data->fd);
 	while (buff_len > 0) {
 		size_t bytes_to_buff;
 		uint8_t *cmd_separator = memchr(buff, LF, buff_len);
@@ -934,11 +962,11 @@ static void proc_bytes(struct conn_data *conn_data, uint8_t *buff, size_t buff_l
 		buff += bytes_to_buff;
 		buff_len -= bytes_to_buff;
 	}
-	DEBUG_PRINT("smtp - proc bytes - stop\n");
+	TRACE_FUNC_P("FD: %d - stop", conn_data->fd);
 }
 
 static void on_timeout(int fd, short ev, void *arg){
-	DEBUG_PRINT("smtp - timeout\n");
+	TRACE_FUNC_FD(fd);
 	struct conn_data *conn_data = (struct conn_data *)arg;
 	char *mesg;
 	concat_mesg(&mesg, 3, TOUT_RESP_PART1, host_name, TOUT_RESP_PART2);
@@ -948,14 +976,14 @@ static void on_timeout(int fd, short ev, void *arg){
 }
 
 static void on_recv(int fd, short ev, void *arg) {
-	DEBUG_PRINT("smtp - on receive\n");
+	TRACE_FUNC_FD(fd);
 	struct conn_data *conn_data = (struct conn_data *)arg;
 	ssize_t amount = recv(fd, read_buff, BUFSIZ, 0);
 	switch (amount) {
 		case -1:
 			if (errno == EAGAIN)
 				return;
-			DEBUG_PRINT("smtp - error on connection %d: %s\n", fd, strerror(errno));
+			INFO("Receive error on connection with FD: %d", fd);
 		case 0:
 			close_conn(conn_data);
 			return;
@@ -967,28 +995,26 @@ static void on_recv(int fd, short ev, void *arg) {
 }
 
 static void on_accept(int listen_fd, short ev, void *arg) {
-	DEBUG_PRINT("smtp - on accept\n");
+	TRACE_FUNC;
 	struct sockaddr_storage conn_addr;
 	socklen_t conn_addr_len = sizeof(conn_addr);
 	int conn_fd = accept(listen_fd, (struct sockaddr *)&conn_addr, &conn_addr_len);
 	if (conn_fd < 0) {
-		DEBUG_PRINT("smtp - error - accept\n");
+		ERROR("Couldn't accept connection on socket with FD: %d", listen_fd);
 		return;
 	}
 	if (setnonblock(conn_fd) != 0) {
-		DEBUG_PRINT("smtp - error - couldnt set nonblock\n");
 		close(conn_fd);
 		return;
 	}
 	struct conn_data *conn_data = get_conn_data(conn_fd);
 	if (conn_data == NULL) {
-		DEBUG_PRINT("smtp - accept - no free slots\n");
+		INFO("No free conn_data slots. Refusing connection.");
 		// no free slots
 		close(conn_fd);
 		return;
 	}
 	if (sockaddr_to_string(&conn_addr, conn_data->ipaddr_str) != 0) {
-		DEBUG_PRINT("smtp - sock addr to string - unknown socket family\n");
 		exit_code = EXIT_FAILURE;
 		event_base_loopbreak(ev_base);
 		return;
@@ -1011,10 +1037,11 @@ static void on_accept(int listen_fd, short ev, void *arg) {
 	tm = (struct timeval) {INACT_TIMEOUT, 0};
 	evtimer_add(conn_data->inac_tout_ev, &tm);
 	report_connect(conn_data);
-	DEBUG_PRINT("smtp - accepted connection %d\n", conn_data->fd);
+	INFO("Accepted connection with FD: %d", conn_data->fd);
 }
 
 static void gen_host_name() {
+	TRACE_FUNC;
 	srand(time(NULL));
 	size_t pos = 0;
 	host_name[pos++] = 'm';
@@ -1059,17 +1086,16 @@ static void gen_host_name() {
 }
 
 int handle_smtp(int listen_fd, int pipe_write_fd) {
+	TRACE_FUNC;
 	exit_code = EXIT_SUCCESS;
 	report_fd = pipe_write_fd;
 	// to supress evenet base logging
 	event_set_log_callback(ev_base_discard_cb);
-	if (alloc_glob_res() != 0 ) {
-		DEBUG_PRINT("smtp - error - couldn't allocate global resources\n");
+	if (alloc_glob_res() != 0 )
 		return EXIT_FAILURE;
-	}
 	struct event *sigint_ev = event_new(ev_base, SIGINT, EV_SIGNAL, on_sigint, ev_base);
 	if (sigint_ev == NULL) {
-		DEBUG_PRINT("smtp - error - couldn't allocate sigint ev\n");
+		ERROR("Couldn't create sigint event");
 		exit_code = EXIT_FAILURE;
 		goto sigint_ev_err;
 	}

@@ -87,4 +87,4 @@ valgrind \
 --leak-check=full --trace-children=yes \
 --show-leak-kinds=definite,indirect,possible --track-fds=yes \
 --error-exitcode=1 --track-origins=yes \
-../sentinel-minipot -s $socket_arg $minipot_arg
+../sentinel-minipot -s $socket_arg $minipot_arg --log-level -5

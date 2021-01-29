@@ -40,10 +40,10 @@ enum minipot_error {
 };
 
 enum minipot_type {
-	MP_TYPE_TELNET,
-	MP_TYPE_HTTP,
 	MP_TYPE_FTP,
+	MP_TYPE_HTTP,
 	MP_TYPE_SMTP,
+	MP_TYPE_TELNET,
 	MP_TYPE_NUM_TYPES //number of minipot types
 };
 

@@ -9,7 +9,8 @@ minipot_sources = \
 	smtp.c \
 	cli_opts.c \
 	minipot_pipe.c \
-	child.c
+	child.c \
+	log.c
 
 sentinel_minipot_SOURCES = \
 	main.c \
@@ -19,14 +20,15 @@ sentinel_minipot_CFLAGS = \
 	${czmq_CFLAGS} \
 	${msgpack_CFLAGS} \
 	${libevent_CFLAGS} \
-	${base64c_CFLAGS}
+	${base64c_CFLAGS} \
+	${logc_CFLAGS}
 
 sentinel_minipot_LDADD = \
 	${czmq_LIBS} \
 	${msgpack_LIBS} \
 	${libevent_LIBS} \
-	${base64c_LIBS}
-
+	${base64c_LIBS} \
+	${logc_LIBS}
 
 gperf_files =  \
 	http_header.gperf.c \

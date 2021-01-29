@@ -18,8 +18,10 @@
 
 #include <argp.h>
 #include <stdlib.h>
+#include <logc_argp.h>
 
 #include "minipot_config.h"
+#include "utils.h"
 
 #define ARGP_ERROR_PORT_OUT_RAN -1
 
@@ -40,6 +42,7 @@ static struct argp_option options[] = {
 };
 
 static int parse_port(uint16_t *port, char *str) {
+	TRACE_FUNC;
 	char *end_ptr;
 	errno = 0;
 	long int result = strtol(str, &end_ptr, 10);
@@ -54,6 +57,7 @@ static int parse_port(uint16_t *port, char *str) {
 }
 
 static error_t parse_opt(int key, char *arg, struct argp_state *state) {
+	TRACE_FUNC;
 	struct configuration *conf = state->input;
 	enum minipot_type new_minipot_type = MP_TYPE_NUM_TYPES; // In default not minipot
 	switch (key) {
@@ -88,13 +92,21 @@ static error_t parse_opt(int key, char *arg, struct argp_state *state) {
 			conf->minipots_conf[conf->minipots_count].type = new_minipot_type;
 			conf->minipots_count++;
 		} else
-			fprintf(stderr, "Maximal minipot count reached! Minipot ignored!\n"); \
+			fprintf(stderr, "Maximal minipot count reached! Minipot ignored!\n");
 	}
 	return 0;
 }
 
 int load_cli_opts(int argc, char **argv, struct configuration *conf ) {
-	struct argp arg_parser = {options, parse_opt, 0, doc, 0, 0, 0};
+	TRACE_FUNC;
+	logc_argp_log = log_sentinel_minipots; // set our log to be configured by logc_argp
+	struct argp arg_parser = {
+		.options = options,
+		.parser = parse_opt,
+		.doc = doc,
+		.children = (struct argp_child[]){{&logc_argp_parser, 0, "Logging", 2},
+			{NULL}},
+	};
 	error_t err = argp_parse(&arg_parser, argc, argv, 0 , 0, conf);
 	if (err == ARGP_ERR_UNKNOWN) {
 		fprintf(stderr, "Error - argp unknown error\n");

@@ -25,24 +25,9 @@
 #include <stdbool.h>
 #include <event.h>
 
+#include "log.h"
+
 #define IP_ADDR_LEN INET6_ADDRSTRLEN
-
-#define DEBUG 1
-
-#ifdef DEBUG
-#define DEBUG_PRINT(...) fprintf(stderr, __VA_ARGS__)
-#else
-#define DEBUG_PRINT(...) do { } while (0);
-#endif
-
-#ifdef DEBUG
-#define DEBUG_WRITE(...) do { \
-	fwrite(__VA_ARGS__, stderr); \
-	fprintf(stderr, "\n"); \
-	} while (0)
-#else
-#define DEBUG_WRITE(...) do { } while (0);
-#endif
 
 #define FLOW_GUARD(cmd) do { \
 	if (cmd) \
@@ -56,6 +41,10 @@
 
 #define SIZEOF_MEMBER(TYPE, MEMBER) sizeof(((TYPE*)NULL)->MEMBER)
 #define TYPEOF_MEMBER(TYPE, MEMBER) __typeof__(((TYPE*)NULL)->MEMBER)
+
+#define TRACE_FUNC TRACE(__func__)
+#define TRACE_FUNC_FD(fd) TRACE("%s (FD: %d)", __func__, fd)
+#define TRACE_FUNC_P(FORMAT, ...) TRACE("%s (" FORMAT ")", __func__, __VA_ARGS__)
 
 struct token{
 	uint8_t *start_ptr;

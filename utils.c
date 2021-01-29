@@ -29,17 +29,21 @@
 #include "utils.h"
 
 int setnonblock(int fd) {
+	TRACE_FUNC_FD(fd);
 	int flags;
 	flags = fcntl(fd, F_GETFL);
 	if (flags < 0)
 		return flags;
 	flags |= O_NONBLOCK;
-	if (fcntl(fd, F_SETFL, flags) < 0)
+	if (fcntl(fd, F_SETFL, flags) < 0) {
+		ERROR("Can't set nonblocking mode on FD: %d", fd);
 		return -1;
+	}
 	return 0;
 }
 
 int sockaddr_to_string(struct sockaddr_storage *conn_addr, char *str) {
+	TRACE_FUNC;
 	if (conn_addr->ss_family == AF_INET6) {
 		// IPv6
 		struct sockaddr_in6 *connection_addr6 = (struct sockaddr_in6 *)conn_addr;
@@ -56,16 +60,20 @@ int sockaddr_to_string(struct sockaddr_storage *conn_addr, char *str) {
 		inet_ntop(AF_INET, &connection_addr4->sin_addr, str, INET_ADDRSTRLEN);
 		return 0;
 	} else {
+		ERROR("Couldn't get IP adress from unsupported socket family type: %d",
+			conn_addr->ss_family);
 		return 1;
 	}
 }
 
 int send_all(int fd, const char *data, size_t amount) {
+	TRACE_FUNC_FD(fd);
 	while (amount > 0) {
 		ssize_t sent = send(fd, data, amount, MSG_NOSIGNAL);
 		if (sent == -1) {
 			if (errno == EAGAIN || errno == EINTR)
 				continue;
+			INFO("Couldn't send data to FD: %d", fd);
 			return -1;
 		}
 		data += (size_t)sent;
@@ -85,8 +93,9 @@ int send_all(int fd, const char *data, size_t amount) {
 // to skip. If all bytes/chars are skipped it returns pointer to the last
 // character of the string.
 static uint8_t *skip_sel_bytes(uint8_t *str, size_t str_len, uint8_t *to_skip, size_t to_skip_len) {
+	TRACE_FUNC;
 	if (!str || str_len == 0 || !to_skip || to_skip_len == 0) {
-		DEBUG_PRINT("http - skip bytes - wrong input\n");
+		ERROR("Wrong parameters passed to skip_sel_bytes");
 		return str;
 	}
 	uint8_t *end_ptr = str + str_len;
@@ -115,8 +124,9 @@ static uint8_t *skip_sel_bytes(uint8_t *str, size_t str_len, uint8_t *to_skip, s
 // to_skip. If str is NULL or to_skip is NULL or str_len is 0 or to_skip_len is
 // 0, it returns NULL. If NO occurance of evaluated bytes is found, it returns NULL.
 static uint8_t *find_first_occur(uint8_t *str, size_t str_len, uint8_t *to_skip, size_t to_skip_len) {
+	TRACE_FUNC;
 	if (!str || str_len == 0 || !to_skip || to_skip_len == 0) {
-		DEBUG_PRINT("http - find first occur - wrong input\n");
+		ERROR("Wrong parameters passed to find_first_occur");
 		return NULL;
 	}
 	uint8_t *end_ptr = str + str_len;
@@ -132,7 +142,7 @@ static uint8_t *find_first_occur(uint8_t *str, size_t str_len, uint8_t *to_skip,
 }
 
 size_t tokenize(uint8_t *str, size_t str_len, struct token *tokens, size_t tokens_len, uint8_t *separators, size_t sep_len) {
-	DEBUG_PRINT("tokenize\n");
+	TRACE_FUNC;
 	uint8_t *str_end = str + str_len - 1;
 	uint8_t *token_start = str;
 	size_t tokens_cnt = 0;
@@ -168,18 +178,20 @@ size_t tokenize(uint8_t *str, size_t str_len, struct token *tokens, size_t token
 			}
 		}
 	}
-	DEBUG_PRINT("tokenize - reached maximum tokens\n");
+	WARNING("Maximum numbers of tokens reached");
 }
 
 void ev_base_discard_cb(int severity, const char *msg) {}
 
 void on_sigint(evutil_socket_t sig, short events, void *user_data) {
+	errno = 0;
+	TRACE_FUNC;
 	struct event_base *evb = (struct event_base *)user_data;
 	event_base_loopbreak(evb);
 }
 
 void concat_mesg(char **buff, size_t args_num, ...) {
-	DEBUG_PRINT("utils - concat mesg\n");
+	TRACE_FUNC;
 	va_list args;
 	size_t mesg_size = 0;
 	va_start(args, args_num);
@@ -197,7 +209,7 @@ void concat_mesg(char **buff, size_t args_num, ...) {
 }
 
 int check_serv_data(const uint8_t *buff, size_t len) {
-	DEBUG_PRINT("utils - check_serv_data\n");
+	TRACE_FUNC;
 	enum state{S0, S1, S2, S3, S4, S5, S6, S7} state = S0;
 	for (size_t i = 0; i < len; i++) {
 		switch (state) {
@@ -266,13 +278,11 @@ int check_serv_data(const uint8_t *buff, size_t len) {
 				break;
 		}
 	}
-	DEBUG_PRINT("state: %d\n",state);
 	// check if the string is complete
 	if (state == S0) {
-		DEBUG_PRINT("utf-8 passed\n");
 		return 0;
 	} else {
-		DEBUG_PRINT("utf-8 failed\n");
+		TRACE("Data for server are invalid");
 		return -1;
 	}
 }

@@ -22,6 +22,8 @@
 #include <signal.h>
 #include <sys/wait.h>
 #include <errno.h>
+#include <sys/prctl.h>
+#include <string.h>
 
 #include "minipot_config.h"
 #include "master_pipe.h"
@@ -29,13 +31,19 @@
 #include "cli_opts.h"
 #include "utils.h"
 
+static const char *minipot_t_enum_str[] = {"minipot [FTP]", "minipot [HTTP]",
+	"minipot [SMTP]", "minipot [Telnet]"};
+static const char *master = "minipot [Master]";
+
 static void sigchld_handler(int sig) {
+	TRACE_FUNC;
 	int status;
 	pid_t pid;
 	int saved_errno = errno;
 	// wait for any child process, if no child process exited return immediately
 	while ((pid = waitpid(-1, &status, WNOHANG)) > 0) {
-		DEBUG_PRINT("master - child process %d exited with code %d.\n", pid, WEXITSTATUS(status));
+		INFO("Child process with PID: %d exited with code %d.",
+			pid, WEXITSTATUS(status));
 		if (status != EXIT_SUCCESS)
 			master_pipe_break();
 	}
@@ -43,6 +51,7 @@ static void sigchld_handler(int sig) {
 }
 
 static void destroy_minipots(size_t count, struct service_data *serv_data) {
+	TRACE_FUNC;
 	for (size_t i = 0; i < count; i++) {
 		kill(serv_data[i].child_pid, SIGINT);
 		close(serv_data[i].pipe[0]); // close read end
@@ -50,6 +59,7 @@ static void destroy_minipots(size_t count, struct service_data *serv_data) {
 }
 
 static int deploy_minipot(struct service_data *data, struct minipot_conf *conf, const char *user) {
+	TRACE_FUNC;
 	data->child_pid = -1;
 	data->user = user;
 	data->port = conf->port;
@@ -62,27 +72,47 @@ static int deploy_minipot(struct service_data *data, struct minipot_conf *conf, 
 		close(data->pipe[0]);
 		return -1;
 	}
-	if (data->child_pid == 0)
-		exit(handle_child(data));
+	if (data->child_pid == 0) {
+		// set logger and process name for easier debuging
+		char *name;
+		size_t len;
+		FILE *tmp = open_memstream(&name, &len);
+		fprintf(tmp, "%s PID [%d]", minipot_t_enum_str[conf->type], getpid());
+		fclose(tmp);
+		log_sentinel_minipots->name = name;
+		prctl(PR_SET_NAME, minipot_t_enum_str[conf->type]);
+		int ret = handle_child(data);
+		free(name);
+		exit(ret);
+	}
 	close(data->pipe[1]); // close write end
 	// read end setup
 	setnonblock(data->pipe[0]);
 	master_pipe_register_child(data->pipe[0]);
+	INFO("listening on data from %s with PID [%d] on pipe read end with FD: %d",
+		minipot_t_enum_str[conf->type], data->child_pid, data->pipe[0]);
 	return 0;
 }
 
 static int deploy_minipots(struct configuration *conf, struct service_data *serv_data) {
-	for (size_t i = 0; i < conf->minipots_count; i++) {
+	TRACE_FUNC;
+	for (size_t i = 0; i < conf->minipots_count; i++)
 		if (deploy_minipot(&serv_data[i], &conf->minipots_conf[i], conf->user) != 0) {
 			destroy_minipots(i, serv_data);
 			return -1;
 		}
-		DEBUG_PRINT("master - %zd. service running, PID: %d\n", i + 1, serv_data[i].child_pid);
-	}
 	return 0;
 }
 
 int main(int argc, char **argv) {
+	// set logger and process name for easier debuging
+	char *name;
+	size_t len;
+	FILE *tmp = open_memstream(&name, &len);
+	fprintf(tmp, "%s PID [%d]", master, getpid());
+	fclose(tmp);
+	log_sentinel_minipots->name = name;
+	prctl(PR_SET_NAME, master);
 	fclose(stdin);
 	struct configuration conf = {
 		.user = DEFAULT_USER,
@@ -93,7 +123,6 @@ int main(int argc, char **argv) {
 	int retcode = load_cli_opts(argc, argv, &conf);
 	if (retcode != MP_ERR_OK)
 		return retcode;
-	DEBUG_PRINT("Master process PID: %d\n", getpid());
 	struct service_data *service_data_pool = malloc(sizeof(*service_data_pool) * conf.minipots_count);
 	retcode = master_pipe_alloc(&conf);
 	if (retcode != MP_ERR_OK)
@@ -110,5 +139,6 @@ int main(int argc, char **argv) {
 
 	err_pipe_malloc:
 	free(service_data_pool);
+	free(name);
 	return retcode;
 }

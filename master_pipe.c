@@ -31,7 +31,7 @@
 enum pipe_state {
 	PS_BUFF_LEN,
 	PS_BUFF_DATA,
-	PS_BUFF_NUM_STATES //number of pipe states
+	PS_BUFF_NUM_STATES // number of pipe states
 };
 
 struct pipe_data {
@@ -67,13 +67,16 @@ static size_t pipes_count;
 static int retcode;
 
 static void reset_pipe_buff(struct pipe_data *pipe_data ) {
+	TRACE_FUNC;
 	pipe_data->len_write_ptr = pipe_data->len.bytes;
 	pipe_data->len_free_len = sizeof(pipe_data->len.full);
 	msgpack_sbuffer_clear(&pipe_data->sbuffer);
 	pipe_data->state = PS_BUFF_LEN;
 }
 
-static void buff_len(struct pipe_data *pipe_data, uint8_t **buff, size_t *size_to_proc) {
+static void buff_len(struct pipe_data *pipe_data, uint8_t **buff,
+	size_t *size_to_proc) {
+	TRACE_FUNC;
 	size_t to_copy = MY_MIN(*size_to_proc, pipe_data->len_free_len);
 	memcpy(pipe_data->len_write_ptr, *buff, to_copy);
 	// shift read buffer
@@ -88,6 +91,7 @@ static void buff_len(struct pipe_data *pipe_data, uint8_t **buff, size_t *size_t
 
 // Returns true if sent was successful and false otherwise.
 static bool proxy_send_waiting() {
+	TRACE_FUNC;
 	bool ret = true;
 	if (messages_waiting == 0)
 		return ret;
@@ -100,12 +104,14 @@ static bool proxy_send_waiting() {
 	messages_waiting = 0;
 	zmsg_t *msg = zmsg_new();
 	if (msg == NULL) {
+		ERROR("Couldn't create ZMQ message");
 		ret = false;
 		goto err;
 	}
 	if (zmsg_addstr(msg, topic) ||
 		zmsg_addmem(msg, sbuf.data, sbuf.size) ||
 		zmsg_send(&msg, proxy_sock)) {
+			ERROR("Couldn't send ZMQ message");
 			zmsg_destroy(&msg);
 			ret = false;
 	}
@@ -116,9 +122,9 @@ static bool proxy_send_waiting() {
 }
 
 static void proxy_add(msgpack_sbuffer *sbuf) {
+	TRACE_FUNC;
 	if (messages_waiting == PROXY_MAX_WAITING_MESSAGES)
 		if (!proxy_send_waiting()) {
-			DEBUG_PRINT("master pipe - couldn't sent to proxy\n");
 			retcode = MP_ERR_PROXY_SENT;
 			event_base_loopbreak(ev_base);
 			return;
@@ -127,6 +133,7 @@ static void proxy_add(msgpack_sbuffer *sbuf) {
 }
 
 static void buff_data(struct pipe_data *data, uint8_t **buff, size_t *size_to_proc) {
+	TRACE_FUNC;
 	size_t missing_data = data->len.full - data->sbuffer.size;
 	size_t copy_len = MY_MIN(missing_data, *size_to_proc);
 	msgpack_sbuffer_write(&data->sbuffer, *buff, copy_len);
@@ -141,6 +148,7 @@ static void buff_data(struct pipe_data *data, uint8_t **buff, size_t *size_to_pr
 }
 
 static void pipe_read(int fd, short ev, void *arg) {
+	TRACE_FUNC;
 	struct pipe_data *data = (struct pipe_data *) arg;
 	uint8_t buffer[BUFSIZ];
 	ssize_t nbytes = read(fd, buffer, BUFSIZ);
@@ -148,12 +156,12 @@ static void pipe_read(int fd, short ev, void *arg) {
 		case -1:
 			if (errno == EAGAIN)
 				return;
-			DEBUG_PRINT("master pipe - read - error receiving from pipe\n");
+			ERROR("Error while receiving from pipe read end on FD:", fd);
 			retcode = MP_ERR_PIPE_READ;
 			event_base_loopbreak(ev_base);
 			return;
 		case 0:
-			DEBUG_PRINT("master pipe - read - closed pipe from child\n");
+			INFO("Pipe with read end on FD: %d was closed from child", fd);
 			event_base_loopbreak(ev_base);
 			return;
 	}
@@ -167,7 +175,7 @@ static void pipe_read(int fd, short ev, void *arg) {
 				buff_data(data, &buff_ptr, &nbytes);
 				break;
 			default:
-				DEBUG_PRINT("master pipe - read - default\n");
+				ERROR("Invalid pipe state");
 				retcode = MP_ERR_PIPE_PROTOCOL;
 				event_base_loopbreak(ev_base);
 				break;
@@ -176,20 +184,23 @@ static void pipe_read(int fd, short ev, void *arg) {
 }
 
 static void proxy_timer_handler(int fd, short event, void *data) {
+	TRACE_FUNC;
 	if (!proxy_send_waiting()) {
-		DEBUG_PRINT("master pipe - couldn't sent to proxy\n");
 		retcode = MP_ERR_PROXY_SENT;
 		event_base_loopbreak(ev_base);
 	}
 }
 
 static void sigint_handler(evutil_socket_t sig, short events, void *user_data) {
-	DEBUG_PRINT("master pipe - caught SIGINT or SIGTERM\n");
+	errno = 0; // reset errno set by ??? to allow correct LogC functionality
+	TRACE_FUNC;
 	event_base_loopbreak(ev_base);
 }
 
 int master_pipe_alloc(struct configuration *conf) {
+	TRACE_FUNC;
 	proxy_sock = zsock_new(ZMQ_PUSH);
+	errno = 0; // reset errno set by czmq to allow correct LogC functionality
 	if (proxy_sock == NULL)
 		return MP_ERR_PIPE_MALLOC;
 	// to supress event base logging
@@ -204,6 +215,7 @@ int master_pipe_alloc(struct configuration *conf) {
 }
 
 void master_pipe_free() {
+	TRACE_FUNC;
 	// we dont care about send succes we are exiting anyways
 	proxy_send_waiting();
 	zsock_destroy(&proxy_sock);
@@ -222,18 +234,22 @@ void master_pipe_free() {
 }
 
 void master_pipe_register_child(int read_fd) {
+	TRACE_FUNC;
 	pipes_data[pipes_count].read_ev = event_new(ev_base, read_fd, EV_READ | EV_PERSIST, pipe_read, &pipes_data[pipes_count]);
 	event_add(pipes_data[pipes_count].read_ev, NULL);
 	msgpack_sbuffer_init(&pipes_data[pipes_count].sbuffer);
 	reset_pipe_buff(&pipes_data[pipes_count]);
 	pipes_count++;
+	
 }
 
 int master_pipe_run(struct configuration *conf) {
+	TRACE_FUNC;
 	if (zsock_connect(proxy_sock, "%s", conf->socket) != 0){
 		zsock_destroy(&proxy_sock);
 		return MP_ERR_PROXY_CONN;
 	}
+	errno = 0; // reset errno probably set by czmq to allow correct LogC functionality
 	topic = conf->topic;
 	event_add(sigint_ev, NULL);
 	event_add(sigterm_ev, NULL);
@@ -250,6 +266,7 @@ int master_pipe_run(struct configuration *conf) {
 }
 
 void master_pipe_break() {
+	TRACE_FUNC;
 	retcode = MP_ERR_CHILD;
 	event_base_loopbreak(ev_base);
 }
