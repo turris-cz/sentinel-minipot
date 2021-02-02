@@ -121,6 +121,7 @@ def login_test2(server_sock):
         MINIPOT_INCORR_LOGIN
     Required Minipots generated Sentinel message:
         connect
+        invalid
     More description:
 
     Parameters:
@@ -135,7 +136,7 @@ def login_test2(server_sock):
     server_sock.sendall(CRLF)
     response = recv_from_sock(server_sock)
     assert response == MINIPOT_INCORR_LOGIN
-    return [gen_connect_report(server_sock), gen_login_report(server_sock)]
+    return [gen_connect_report(server_sock), gen_invalid_report(server_sock)]
 
 
 def login_test3(server_sock):
@@ -208,7 +209,7 @@ def login_test5(server_sock):
         MINIPOT_INCORR_LOGIN
     Required Minipots generated Sentinel message:
         connect
-        login
+        invalid
     More description:
 
     Parameters:
@@ -224,7 +225,7 @@ def login_test5(server_sock):
     server_sock.sendall(passw + CRLF)
     response = recv_from_sock(server_sock)
     assert response == MINIPOT_INCORR_LOGIN
-    return [gen_connect_report(server_sock), gen_login_report(server_sock, password=passw)]
+    return [gen_connect_report(server_sock), gen_invalid_report(server_sock)]
 
 
 def login_test6(server_sock):
