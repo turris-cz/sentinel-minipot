@@ -442,7 +442,8 @@ static void report_message(struct conn_data *conn_data) {
 
 static void report_login(struct conn_data *conn_data, char *username, size_t username_len,
 							char *password, size_t password_len) {
-	if (check_serv_data(username, username_len) ||
+	if (username_len == 0 ||
+		check_serv_data(username, username_len) ||
 		check_serv_data(password, password_len) ||
 		check_serv_data(conn_data->url, conn_data->url_len) ||
 		check_serv_data(conn_data->user_ag, conn_data->user_ag_len)) {
