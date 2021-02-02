@@ -282,7 +282,8 @@ static void report_invalid(struct conn_data *conn_data) {
 
 static void report_login(struct conn_data *conn_data) {
 	size_t passw_len = conn_data->line_wrt_ptr - conn_data->line_start_ptr;
-	if (check_serv_data(conn_data->user, conn_data->user_len) ||
+	if (conn_data->user_len == 0 ||
+		check_serv_data(conn_data->user, conn_data->user_len) ||
 		check_serv_data(conn_data->passw, passw_len)) {
 		report_invalid(conn_data);
 		return;
