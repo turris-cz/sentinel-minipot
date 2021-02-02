@@ -18,7 +18,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Update README
 - Update integration tests doc
 - Update Minipots doc
-- Send invalid Sentinel message if missing username 
+- Send invalid Sentinel message if missing username
+- HTTP minipot - limit announced version
 
 ### Fixed
 - Debug prints

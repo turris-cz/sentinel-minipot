@@ -60,21 +60,21 @@
 
 #define URI_TOO_LONG_PART1 "HTTP/1.1 414 Request-URI Too Long\r\nDate: "
 // IMPORTANT - when changing length of the body - the Content-Length header value MUST BE changed accordingly !!!
-#define URI_TOO_LONG_PART2 "\r\nServer: Apache/2.4.38 (Debian)\r\nContent-Length: 254\r\n\
+#define URI_TOO_LONG_PART2 "\r\nServer: Apache/2.4\r\nContent-Length: 254\r\n\
 Connection: close\r\nContent-Type: text/html; charset=iso-8859-1\r\n\r\n\
 <!DOCTYPE HTML PUBLIC \"-//IETF//DTD HTML 2.0//EN\">\n<html><head>\n<title>414 Request-URI Too Long</title>\n\
 </head><body>\n<h1>Request-URI Too Long</h1>\n<p>The requested URL\'s length exceeds the capacity\nlimit for this server.<br />\n</p>\n<hr>\n</body></html>\n"
 
 #define BAD_REQ_PART1 "HTTP/1.1 400 Bad Request\r\nDate: "
 // IMPORTANT - when changing length of the body - the Content-Length header value MUST BE changed accordingly !!!
-#define BAD_REQ_PART2 "\r\nServer: Apache/2.4.38 (Debian)\r\nContent-Length: 231\r\nConnection: close\r\n\
+#define BAD_REQ_PART2 "\r\nServer: Apache/2.4\r\nContent-Length: 231\r\nConnection: close\r\n\
 Content-Type: text/html; charset=iso-8859-1\r\n\r\n\
 <!DOCTYPE HTML PUBLIC \"-//IETF//DTD HTML 2.0//EN\">\n<html><head>\n<title>400 Bad Request</title>\n\
 </head><body>\n<h1>Bad Request</h1>\n<p>Your browser sent a request that this server could not understand.<br />\n</p>\n<hr>\n</body></html>\n"
 
 #define UNAUTH_REQ_PART1 "HTTP/1.1 401 Unauthorized\r\nDate: "
 // IMPORTANT - when changing length of the body - the Content-Length header value MUST BE changed accordingly !!!
-#define UNAUTH_REQ_PART2 "\r\nServer: Apache/2.4.38 (Debian)\r\nWWW-Authenticate: Basic realm=\"Authentication Required\"\r\n\
+#define UNAUTH_REQ_PART2 "\r\nServer: Apache/2.4\r\nWWW-Authenticate: Basic realm=\"Authentication Required\"\r\n\
 Content-Length: 386\r\nContent-Type: text/html; charset=iso-8859-1\r\n\r\n\
 <!DOCTYPE HTML PUBLIC \"-//IETF//DTD HTML 2.0//EN\">\n<html><head>\n<title>401 Unauthorized</title>\n</head><body>\n<h1>Unauthorized</h1>\n<p>\
 This server could not verify that you\nare authorized to access the document\nrequested.  Either you supplied the wrong\n\
