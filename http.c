@@ -427,6 +427,7 @@ static void report_message(struct conn_data *conn_data) {
 	struct uint8_t_pair data[] = {
 		{METHOD, strlen(METHOD), conn_data->method, conn_data->method_len},
 		{URL, strlen(URL), conn_data->url, conn_data->url_len},
+		// MUST BE THE LAST ONE - IT IS OPTIONAL !!!
 		{USER_AG, strlen(USER_AG), conn_data->user_ag, conn_data->user_ag_len},
 	};
 	struct proxy_msg msg = {
@@ -435,8 +436,9 @@ static void report_message(struct conn_data *conn_data) {
 		.ip = conn_data->ipaddr_str,
 		.action = MSG_EV,
 		.data = data,
-		.data_len = sizeof(data) / sizeof(*data),
 	};
+	// method, url + optional user
+	msg.data_len = conn_data->user_ag_len == 0 ? 2 : 3;
 	report(&msg, "http - error - couldn't report message\n");
 }
 
@@ -453,9 +455,10 @@ static void report_login(struct conn_data *conn_data, char *username, size_t use
 	struct uint8_t_pair data[] = {
 		{METHOD, strlen(METHOD), conn_data->method, conn_data->method_len},
 		{URL, strlen(URL), conn_data->url, conn_data->url_len},
-		{USER_AG, strlen(USER_AG), conn_data->user_ag, conn_data->user_ag_len},
 		{USERNAME, strlen(USERNAME), username, username_len},
 		{PASSWORD, strlen(PASSWORD), password, password_len},
+		// MUST BE THE LAST ONE - IT IS OPTIONAL !!!
+		{USER_AG, strlen(USER_AG), conn_data->user_ag, conn_data->user_ag_len},
 	};
 	struct proxy_msg msg = {
 		.ts = time(NULL),
@@ -463,8 +466,9 @@ static void report_login(struct conn_data *conn_data, char *username, size_t use
 		.ip = conn_data->ipaddr_str,
 		.action = LOGIN_EV,
 		.data = data,
-		.data_len = sizeof(data) / sizeof(*data),
 	};
+	// method, url, username, password + optional user agent
+	msg.data_len = conn_data->user_ag_len == 0 ? 4 : 5;
 	report(&msg, "http - error - couldn't report login\n");
 }
 

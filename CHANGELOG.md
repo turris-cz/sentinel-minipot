@@ -20,6 +20,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Update Minipots doc
 - Send invalid Sentinel message if missing username
 - HTTP minipot - limit announced version
+- HTTP minipot - make user agent optional part of Sentinel message
 
 ### Fixed
 - Debug prints
