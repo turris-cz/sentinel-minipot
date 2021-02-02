@@ -924,7 +924,7 @@ def auth_header_test5(server_sock):
         MINIPOT_UNAUTH_REQ_PART1
     Required Minipots generated Sentinel message:
         connect
-        login
+        invalid
     More description:
 
     Parameters:
@@ -938,8 +938,7 @@ def auth_header_test5(server_sock):
     server_sock.sendall(msg)
     response = recv_from_sock(server_sock)
     assert response[:len(MINIPOT_UNAUTH_REQ_PART1)] == MINIPOT_UNAUTH_REQ_PART1
-    return [gen_connect_report(server_sock),
-            gen_login_report(server_sock, meth=method, url=url, passw=password)]
+    return [gen_connect_report(server_sock), gen_invalid_report(server_sock)]
 
 
 def auth_header_test6(server_sock):
