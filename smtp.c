@@ -405,7 +405,8 @@ static void report_login_plain(struct conn_data *conn_data) {
 	size_t authcid_len = null_byte - authcid;
 	char *password = null_byte + 1;
 	size_t password_len = dcoded_data_len - authzid_len - authcid_len - 2;
-	if (check_serv_data(authcid, authcid_len) ||
+	if (authcid_len == 0 ||
+		check_serv_data(authcid, authcid_len) ||
 		check_serv_data(password, password_len))
 		goto err;
 	struct uint8_t_pair data[] = {
