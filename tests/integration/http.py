@@ -60,9 +60,11 @@ def gen_mesg_report(sock, meth=b"", url=b"", user_ag=b""):
         user_ag: bytes """
     data = {
         MINIPOT_METHOD: meth,
-        MINIPOT_URL: url,
-        MINIPOT_USER_AG: user_ag,
+        MINIPOT_URL: url
     }
+    # User agent is optional
+    if user_ag:
+        data[MINIPOT_USER_AG] = user_ag
     return gen_proxy_report(MINIPOT_TYPE, MINIPOT_MSG_EV, get_ip_addr(sock), data)
 
 
@@ -79,10 +81,12 @@ def gen_login_report(sock, meth=b"", url=b"", user_ag=b"", user=b"", passw=b""):
     data = {
         MINIPOT_METHOD: meth,
         MINIPOT_URL: url,
-        MINIPOT_USER_AG: user_ag,
         MINIPOT_USERNAME: user,
         MINIPOT_PASSWORD: passw,
     }
+    # User agent is optional
+    if user_ag:
+        data[MINIPOT_USER_AG] = user_ag
     return gen_proxy_report(MINIPOT_TYPE, MINIPOT_LOGIN_EV, get_ip_addr(sock), data)
 
 
