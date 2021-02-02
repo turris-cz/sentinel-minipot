@@ -2337,7 +2337,7 @@ def auth_cmd_helo_sent_init_resp_test12(server_sock):
         MINIPOT_AUTH_PLAIN_INIT_RESP_RESP
     Required Minipots generated Sentinel message:
         connect
-        plain
+        invalid
     More description:
 
     Parameters:
@@ -2356,8 +2356,7 @@ def auth_cmd_helo_sent_init_resp_test12(server_sock):
     server_sock.sendall(cmd)
     response = recv_from_sock(server_sock)
     assert response == MINIPOT_AUTH_PLAIN_INIT_RESP_RESP
-    return [gen_connect_report(server_sock),
-            gen_login_report(server_sock, password=passw, sasl=MINIPOT_PLAIN_MECH)]
+    return [gen_connect_report(server_sock), gen_invalid_report(server_sock)]
 
 
 def auth_cmd_helo_sent_init_resp_test13(server_sock):
@@ -2411,7 +2410,7 @@ def auth_cmd_helo_sent_init_resp_test14(server_sock):
         MINIPOT_AUTH_PLAIN_INIT_RESP_RESP
     Required Minipots generated Sentinel message:
         connect
-        plain
+        invalid
     More description:
 
     Parameters:
@@ -2429,8 +2428,7 @@ def auth_cmd_helo_sent_init_resp_test14(server_sock):
     server_sock.sendall(cmd)
     response = recv_from_sock(server_sock)
     assert response == MINIPOT_AUTH_PLAIN_INIT_RESP_RESP
-    return [gen_connect_report(server_sock),
-            gen_login_report(server_sock, password=passw, sasl=MINIPOT_PLAIN_MECH)]
+    return [gen_connect_report(server_sock), gen_invalid_report(server_sock)]
 
 
 def auth_cmd_helo_sent_init_resp_test15(server_sock):
@@ -2483,7 +2481,7 @@ def auth_cmd_helo_sent_init_resp_test16(server_sock):
         MINIPOT_AUTH_PLAIN_INIT_RESP_RESP
     Required Minipots generated Sentinel message:
         connect
-        plain
+        invalid
     More description:
 
     Parameters:
@@ -2501,8 +2499,7 @@ def auth_cmd_helo_sent_init_resp_test16(server_sock):
     server_sock.sendall(cmd)
     response = recv_from_sock(server_sock)
     assert response == MINIPOT_AUTH_PLAIN_INIT_RESP_RESP
-    return [gen_connect_report(server_sock),
-            gen_login_report(server_sock, sasl=MINIPOT_PLAIN_MECH)]
+    return [gen_connect_report(server_sock), gen_invalid_report(server_sock)]
 
 
 def auth_cmd_helo_sent_init_resp_test17(server_sock):
@@ -2519,7 +2516,7 @@ def auth_cmd_helo_sent_init_resp_test17(server_sock):
         MINIPOT_AUTH_PLAIN_INIT_RESP_RESP
     Required Minipots generated Sentinel message:
         connect
-        plain
+        invalid
     More description:
 
     Parameters:
@@ -2535,8 +2532,7 @@ def auth_cmd_helo_sent_init_resp_test17(server_sock):
     server_sock.sendall(cmd)
     response = recv_from_sock(server_sock)
     assert response == MINIPOT_AUTH_PLAIN_INIT_RESP_RESP
-    return [gen_connect_report(server_sock),
-            gen_login_report(server_sock, sasl=MINIPOT_PLAIN_MECH)]
+    return [gen_connect_report(server_sock), gen_invalid_report(server_sock)]
 
 
 def auth_cmd_helo_sent_init_resp_test18(server_sock):
@@ -2987,7 +2983,7 @@ def expect_plain_data_test8(server_sock):
         MINIPOT_AUTH_PLAIN_INIT_RESP_RESP
     Required Minipots generated Sentinel message:
         connect
-        plain
+        invalid
     More description:
 
     Parameters:
@@ -3009,8 +3005,7 @@ def expect_plain_data_test8(server_sock):
     server_sock.sendall(line)
     response = recv_from_sock(server_sock)
     assert response == MINIPOT_AUTH_PLAIN_INIT_RESP_RESP
-    return [gen_connect_report(server_sock),
-            gen_login_report(server_sock, password=passw, sasl=MINIPOT_PLAIN_MECH)]
+    return [gen_connect_report(server_sock), gen_invalid_report(server_sock)]
 
 
 def expect_plain_data_test9(server_sock):
@@ -3071,7 +3066,7 @@ def expect_plain_data_test10(server_sock):
         MINIPOT_AUTH_PLAIN_INIT_RESP_RESP
     Required Minipots generated Sentinel message:
         connect
-        plain
+        invalid
     More description:
 
     Parameters:
@@ -3092,8 +3087,7 @@ def expect_plain_data_test10(server_sock):
     server_sock.sendall(line)
     response = recv_from_sock(server_sock)
     assert response == MINIPOT_AUTH_PLAIN_INIT_RESP_RESP
-    return [gen_connect_report(server_sock),
-            gen_login_report(server_sock, password=passw, sasl=MINIPOT_PLAIN_MECH)]
+    return [gen_connect_report(server_sock), gen_invalid_report(server_sock)]
 
 
 def expect_plain_data_test11(server_sock):
@@ -3153,7 +3147,7 @@ def expect_plain_data_test12(server_sock):
         MINIPOT_AUTH_PLAIN_INIT_RESP_RESP
     Required Minipots generated Sentinel message:
         connect
-        plain
+        invalid
     More description:
 
     Parameters:
@@ -3174,8 +3168,7 @@ def expect_plain_data_test12(server_sock):
     server_sock.sendall(line)
     response = recv_from_sock(server_sock)
     assert response == MINIPOT_AUTH_PLAIN_INIT_RESP_RESP
-    return [gen_connect_report(server_sock),
-            gen_login_report(server_sock, sasl=MINIPOT_PLAIN_MECH)]
+    return [gen_connect_report(server_sock), gen_invalid_report(server_sock)]
 
 
 def expect_plain_data_test13(server_sock):
@@ -3194,7 +3187,7 @@ def expect_plain_data_test13(server_sock):
         MINIPOT_AUTH_PLAIN_INIT_RESP_RESP
     Required Minipots generated Sentinel message:
         connect
-        plain
+        invalid
     More description:
 
     Parameters:
@@ -3213,8 +3206,7 @@ def expect_plain_data_test13(server_sock):
     server_sock.sendall(line)
     response = recv_from_sock(server_sock)
     assert response == MINIPOT_AUTH_PLAIN_INIT_RESP_RESP
-    return [gen_connect_report(server_sock),
-            gen_login_report(server_sock, sasl=MINIPOT_PLAIN_MECH)]
+    return [gen_connect_report(server_sock), gen_invalid_report(server_sock)]
 
 
 def expect_plain_data_test14(server_sock):
