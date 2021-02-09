@@ -4,25 +4,25 @@ test_type="$1"
 minipot_type="$2"
 
 case "$test_type" in
-	"m")
+	"m"|"manual")
 		test_mesg="manual"
 		case "$minipot_type" in
-			"f")
+			"f"|"ftp")
 				minipot_mesg="ftp"
 				socket_arg="ipc:///tmp/sentinel_pull1.sock"
 				minipot_arg="-F 9001"
 				;;
-			"h")
+			"h"|"http")
 				minipot_mesg="http"
 				socket_arg="ipc:///tmp/sentinel_pull2.sock"
 				minipot_arg="-H 9002"
 				;;
-			"s")
+			"s"|"smtp")
 				minipot_mesg="smtp"
 				socket_arg="ipc:///tmp/sentinel_pull3.sock"
 				minipot_arg="-S 9003"
 				;;
-			"t")
+			"t"|"telnet")
 				minipot_mesg="telnet"
 				socket_arg="ipc:///tmp/sentinel_pull4.sock"
 				minipot_arg="-T 9004"
@@ -33,25 +33,25 @@ case "$test_type" in
 				;;
 		esac
 		;;
-	"i")
+	"i"|"integration")
 		test_mesg="integration"
 		case "$minipot_type" in
-			"f")
+			"f"|"ftp")
 				minipot_mesg="ftp"
 				socket_arg="ipc:///tmp/sentinel_pull5.sock"
 				minipot_arg="-F 9005"
 				;;
-			"h")
+			"h"|"http")
 				minipot_mesg="http"
 				socket_arg="ipc:///tmp/sentinel_pull6.sock"
 				minipot_arg="-H 9006"
 				;;
-			"s")
+			"s"|"smtp")
 				minipot_mesg="smtp"
 				socket_arg="ipc:///tmp/sentinel_pull7.sock"
 				minipot_arg="-S 9007"
 				;;
-			"t")
+			"t"|"telnet")
 				minipot_mesg="telnet"
 				socket_arg="ipc:///tmp/sentinel_pull8.sock"
 				minipot_arg="-T 9008"
@@ -62,13 +62,13 @@ case "$test_type" in
 				;;
 		esac
 		;;
-	"p")
+	"p"|"pipeline")
 		test_mesg="pipeline"
 		minipot_mesg="ftp http smtp telnet"
 		socket_arg="ipc:///tmp/sentinel_pull.sock"
 		minipot_arg="-F 9015 -H 9016 -S 9017 -T 9018"
 		;;
-	"t")
+	"t"|"throughput")
 		test_mesg="throughput"
 		minipot_mesg="ftp http smtp telnet"
 		socket_arg="ipc:///tmp/sentinel_pull10.sock"
