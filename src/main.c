@@ -45,7 +45,7 @@ static void sigchld_handler(int sig) {
 		info("Child process with PID: %d exited with code %d.",
 			pid, WEXITSTATUS(status));
 		if (status != EXIT_SUCCESS)
-			master_pipe_break();
+			master_pipe_break(MP_ERR_CHILD);
 	}
 	errno = saved_errno;
 }

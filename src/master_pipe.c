@@ -22,9 +22,8 @@
 
 #include "utils.h"
 #include "service_data.h"
-
-#define PROXY_MAX_WAITING_MESSAGES 10
-#define PROXY_MAX_WAIT_TIME 10
+#include "log.h"
+#include "master_pipe.h"
 
 #define LEN_LEN SIZEOF_MEMBER(msgpack_sbuffer, size)
 
@@ -55,24 +54,11 @@ struct pipe_data {
 static struct event_base *ev_base;
 static struct event *sigint_ev;
 static struct event *sigterm_ev;
-static struct event *proxy_timer_ev;
 static zsock_t *proxy_sock;
 static const char *topic;
-static size_t messages_waiting;
-static msgpack_sbuffer messages[PROXY_MAX_WAITING_MESSAGES];
-static msgpack_sbuffer sbuf;
-static msgpack_packer pk;
 static struct pipe_data *pipes_data;
 static size_t pipes_count;
 static int retcode;
-
-static void reset_pipe_buff(struct pipe_data *pipe_data ) {
-	TRACE_FUNC;
-	pipe_data->len_write_ptr = pipe_data->len.bytes;
-	pipe_data->len_free_len = sizeof(pipe_data->len.full);
-	msgpack_sbuffer_clear(&pipe_data->sbuffer);
-	pipe_data->state = PS_BUFF_LEN;
-}
 
 static void buff_len(struct pipe_data *pipe_data, uint8_t **buff,
 	size_t *size_to_proc) {
@@ -89,47 +75,30 @@ static void buff_len(struct pipe_data *pipe_data, uint8_t **buff,
 		pipe_data->state = PS_BUFF_DATA;
 }
 
-// Returns true if sent was successful and false otherwise.
-static bool proxy_send_waiting() {
+static void reset_pipe_buff(struct pipe_data *pipe_data ) {
 	TRACE_FUNC;
-	bool ret = true;
-	if (messages_waiting == 0)
-		return ret;
-	msgpack_pack_array(&pk, messages_waiting);
-	for (size_t i = 0; i < messages_waiting; i++) {
-		// don't pack header, these are already serialized data
-		msgpack_pack_str_body(&pk, messages[i].data, messages[i].size);
-		msgpack_sbuffer_clear(&messages[i]);
-	}
-	messages_waiting = 0;
-	zmsg_t *msg = zmsg_new();
-	if (msg == NULL) {
-		error("Couldn't create ZMQ message");
-		ret = false;
-		goto err;
-	}
-	if (zmsg_addstr(msg, topic) ||
-		zmsg_addmem(msg, sbuf.data, sbuf.size) ||
-		zmsg_send(&msg, proxy_sock)) {
-			error("Couldn't send ZMQ message");
-			zmsg_destroy(&msg);
-			ret = false;
-	}
-	// in case zmsg was sent it should be destroyed by send procedure
-	err:
-	msgpack_sbuffer_clear(&sbuf);
-	return ret;
+	pipe_data->len_write_ptr = pipe_data->len.bytes;
+	pipe_data->len_free_len = sizeof(pipe_data->len.full);
+	msgpack_sbuffer_clear(&pipe_data->sbuffer);
+	pipe_data->state = PS_BUFF_LEN;
 }
 
-static void proxy_add(msgpack_sbuffer *sbuf) {
+static int send_data(struct pipe_data *data) {
 	TRACE_FUNC;
-	if (messages_waiting == PROXY_MAX_WAITING_MESSAGES)
-		if (!proxy_send_waiting()) {
-			retcode = MP_ERR_PROXY_SENT;
-			event_base_loopbreak(ev_base);
-			return;
-		}
-	msgpack_sbuffer_write(&messages[messages_waiting++], sbuf->data, sbuf->size);
+	int ret = 0;
+	zmsg_t *msg = zmsg_new();
+	if (msg == NULL ||
+			zmsg_addstr(msg, topic) ||
+			zmsg_addmem(msg, data->sbuffer.data, data->sbuffer.size) ||
+			zmsg_send(&msg, proxy_sock)) {
+		error("Couldn't send data to Proxy");
+		zmsg_destroy(&msg);
+		ret = -1;
+	}
+	errno = 0; // reset errno set by czmq to allow correct LogC functionality
+	// in case zmsg was sent it should be destroyed by send procedure
+	msgpack_sbuffer_clear(&data->sbuffer);
+	return ret;
 }
 
 static void buff_data(struct pipe_data *data, uint8_t **buff, size_t *size_to_proc) {
@@ -141,7 +110,8 @@ static void buff_data(struct pipe_data *data, uint8_t **buff, size_t *size_to_pr
 	*size_to_proc -= copy_len;
 	*buff += copy_len;
 	if ((data->len.full - data->sbuffer.size) == 0) {
-		proxy_add(&data->sbuffer);
+		if (send_data(data))
+			master_pipe_break(MP_ERR_PROXY_SENT);
 		reset_pipe_buff(data);
 		data->state = PS_BUFF_LEN;
 	}
@@ -156,13 +126,12 @@ static void pipe_read(int fd, short ev, void *arg) {
 		case -1:
 			if (errno == EAGAIN)
 				return;
-			error("Error while receiving from pipe read end on FD:", fd);
-			retcode = MP_ERR_PIPE_READ;
-			event_base_loopbreak(ev_base);
+			error("Reading from pipe FD: %d failed", fd);
+			master_pipe_break(MP_ERR_PIPE_READ);
 			return;
 		case 0:
-			info("Pipe with read end on FD: %d was closed from child", fd);
-			event_base_loopbreak(ev_base);
+			info("Pipe FD: %d closed from child", fd);
+			master_pipe_break(MP_ERR_OK);
 			return;
 	}
 	uint8_t *buff_ptr = &buffer[0];
@@ -175,31 +144,26 @@ static void pipe_read(int fd, short ev, void *arg) {
 				buff_data(data, &buff_ptr, &nbytes);
 				break;
 			default:
-				error("Invalid pipe state");
-				retcode = MP_ERR_PIPE_PROTOCOL;
-				event_base_loopbreak(ev_base);
+				error("Pipe FD: %d read unknown state", fd);
+				master_pipe_break(MP_ERR_PIPE_PROTOCOL);
 				break;
 		}
-	}
-}
-
-static void proxy_timer_handler(int fd, short event, void *data) {
-	TRACE_FUNC;
-	if (!proxy_send_waiting()) {
-		retcode = MP_ERR_PROXY_SENT;
-		event_base_loopbreak(ev_base);
 	}
 }
 
 static void sigint_handler(evutil_socket_t sig, short events, void *user_data) {
 	errno = 0; // reset errno set by ??? to allow correct LogC functionality
 	TRACE_FUNC;
-	event_base_loopbreak(ev_base);
+	master_pipe_break(MP_ERR_OK);
 }
 
 int master_pipe_alloc(struct configuration *conf) {
 	TRACE_FUNC;
 	proxy_sock = zsock_new(ZMQ_PUSH);
+	// send blocks for max 5s
+	zsock_set_sndtimeo(proxy_sock, 5000);
+	// leave 5s for sending remanining messages before socket destroy
+	zsock_set_linger(proxy_sock, 5000);
 	errno = 0; // reset errno set by czmq to allow correct LogC functionality
 	if (proxy_sock == NULL)
 		return MP_ERR_PIPE_MALLOC;
@@ -208,7 +172,6 @@ int master_pipe_alloc(struct configuration *conf) {
 	ev_base = event_base_new();
 	sigint_ev = event_new(ev_base, SIGINT, EV_SIGNAL, sigint_handler, NULL);
 	sigterm_ev = event_new(ev_base, SIGTERM, EV_SIGNAL, sigint_handler, NULL);
-	proxy_timer_ev = event_new(ev_base, 0, EV_PERSIST, proxy_timer_handler, NULL);
 	pipes_data = malloc(sizeof(*pipes_data) * conf->minipots_count);
 	pipes_count = 0;
 	return MP_ERR_OK;
@@ -216,13 +179,7 @@ int master_pipe_alloc(struct configuration *conf) {
 
 void master_pipe_free() {
 	TRACE_FUNC;
-	// we dont care about send succes we are exiting anyways
-	proxy_send_waiting();
 	zsock_destroy(&proxy_sock);
-	for (size_t i = 0; i < PROXY_MAX_WAITING_MESSAGES; i++)
-		msgpack_sbuffer_destroy(&messages[i]);
-	msgpack_sbuffer_destroy(&sbuf);
-	event_free(proxy_timer_ev);
 	event_free(sigterm_ev);
 	event_free(sigint_ev);
 	for (size_t i =  0; i < pipes_count; i++) {
@@ -235,7 +192,8 @@ void master_pipe_free() {
 
 void master_pipe_register_child(int read_fd) {
 	TRACE_FUNC;
-	pipes_data[pipes_count].read_ev = event_new(ev_base, read_fd, EV_READ | EV_PERSIST, pipe_read, &pipes_data[pipes_count]);
+	pipes_data[pipes_count].read_ev = event_new(ev_base, read_fd,
+		EV_READ | EV_PERSIST, pipe_read, &pipes_data[pipes_count]);
 	event_add(pipes_data[pipes_count].read_ev, NULL);
 	msgpack_sbuffer_init(&pipes_data[pipes_count].sbuffer);
 	reset_pipe_buff(&pipes_data[pipes_count]);
@@ -243,30 +201,40 @@ void master_pipe_register_child(int read_fd) {
 	
 }
 
+static int send_welcome_msg() {
+	TRACE_FUNC;
+	int ret = 0;
+	zmsg_t *msg = zmsg_new();
+	if (msg == NULL ||
+			zmsg_addstr(msg, topic) ||
+			zmsg_send(&msg, proxy_sock)) {
+		error("Couldn't send welcome message");
+		zmsg_destroy(&msg);
+		ret = -1;
+	}
+	errno = 0; // reset errno set by czmq to allow correct LogC functionality
+	// in case zmsg was sent it should be destroyed by send procedure
+	return ret;
+}
+
 int master_pipe_run(struct configuration *conf) {
 	TRACE_FUNC;
-	if (zsock_connect(proxy_sock, "%s", conf->socket) != 0){
+	topic = conf->topic;
+	if (zsock_connect(proxy_sock, "%s", conf->socket) || send_welcome_msg()) {
+		error("Couldn't connect to ZMQ socket");
 		zsock_destroy(&proxy_sock);
 		return MP_ERR_PROXY_CONN;
 	}
 	errno = 0; // reset errno probably set by czmq to allow correct LogC functionality
-	topic = conf->topic;
 	event_add(sigint_ev, NULL);
 	event_add(sigterm_ev, NULL);
-	struct timeval tv = {PROXY_MAX_WAIT_TIME, 0};
-	evtimer_add(proxy_timer_ev, &tv);
-	messages_waiting = 0;
-	for (size_t i = 0; i < PROXY_MAX_WAITING_MESSAGES; i++)
-		msgpack_sbuffer_init(&messages[i]);
-	msgpack_sbuffer_init(&sbuf);
-	msgpack_packer_init(&pk, &sbuf, msgpack_sbuffer_write);
 	retcode = MP_ERR_OK;
 	event_base_dispatch(ev_base);
 	return retcode;
 }
 
-void master_pipe_break() {
+void master_pipe_break(int ret) {
 	TRACE_FUNC;
-	retcode = MP_ERR_CHILD;
+	retcode = ret;
 	event_base_loopbreak(ev_base);
 }

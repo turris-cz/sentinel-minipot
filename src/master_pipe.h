@@ -40,6 +40,7 @@ void master_pipe_register_child(int read_fd);
 int master_pipe_run(struct configuration *conf);
 
 // Breaks event base loop started by master_pipe_run.
-void master_pipe_break();
+// Sets return code which is returned by master_pipe_run.
+void master_pipe_break(int ret);
 
 #endif /*__SENTINEL_MINIPOT_MASTER_PIPE_H__*/
