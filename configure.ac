@@ -17,7 +17,7 @@ PKG_CHECK_MODULES([czmq], [libczmq])
 PKG_CHECK_MODULES([msgpack], [msgpack])
 PKG_CHECK_MODULES([libevent], [libevent])
 PKG_CHECK_MODULES([base64c], [base64c])
-PKG_CHECK_MODULES([logc], [logc logc_argp])
+PKG_CHECK_MODULES([logc], [logc >= 0.2.0 logc_argp])
 
 AC_LINK_IFELSE(
   [AC_LANG_PROGRAM([#include <argp.h>],[argp_parse(0,1,NULL,0,0,0);])],,
@@ -45,6 +45,7 @@ AC_ARG_ENABLE([linters], AC_HELP_STRING([--enable-linters], [Whether to enable l
 AM_CONDITIONAL([ENABLE_LINTERS], [test "x$enable_linters" = "xyes"])
 AS_IF([test "x$enable_linters" = "xyes"], [
   AC_PATH_PROG([CPPCHECK], [cppcheck])
+  AS_IF([test -z "$CPPCHECK" ], AC_MSG_ERROR([Missing linter cppcheck]))
 ])
 
 dnl Coverage

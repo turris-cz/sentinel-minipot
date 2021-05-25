@@ -42,9 +42,9 @@
 #define SIZEOF_MEMBER(TYPE, MEMBER) sizeof(((TYPE*)NULL)->MEMBER)
 #define TYPEOF_MEMBER(TYPE, MEMBER) __typeof__(((TYPE*)NULL)->MEMBER)
 
-#define TRACE_FUNC TRACE(__func__)
-#define TRACE_FUNC_FD(fd) TRACE("%s (FD: %d)", __func__, fd)
-#define TRACE_FUNC_P(FORMAT, ...) TRACE("%s (" FORMAT ")", __func__, __VA_ARGS__)
+#define TRACE_FUNC trace(__func__)
+#define TRACE_FUNC_FD(fd) trace("%s (FD: %d)", __func__, fd)
+#define TRACE_FUNC_P(FORMAT, ...) trace("%s (" FORMAT ")", __func__, __VA_ARGS__)
 
 struct token{
 	uint8_t *start_ptr;

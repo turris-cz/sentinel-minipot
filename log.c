@@ -18,4 +18,17 @@
 
 #include "log.h"
 
-APP_LOG(sentinel_minipots)
+APP_LOG(sentinel_minipots);
+
+
+__attribute__((constructor))
+static void log_constructor() {
+	logc_czmq_init();
+	logc_event_init();
+}
+
+__attribute__((destructor))
+static void log_destructor() {
+	logc_czmq_cleanup();
+	logc_event_cleanup();
+}

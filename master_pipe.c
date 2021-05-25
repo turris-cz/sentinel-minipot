@@ -104,14 +104,14 @@ static bool proxy_send_waiting() {
 	messages_waiting = 0;
 	zmsg_t *msg = zmsg_new();
 	if (msg == NULL) {
-		ERROR("Couldn't create ZMQ message");
+		error("Couldn't create ZMQ message");
 		ret = false;
 		goto err;
 	}
 	if (zmsg_addstr(msg, topic) ||
 		zmsg_addmem(msg, sbuf.data, sbuf.size) ||
 		zmsg_send(&msg, proxy_sock)) {
-			ERROR("Couldn't send ZMQ message");
+			error("Couldn't send ZMQ message");
 			zmsg_destroy(&msg);
 			ret = false;
 	}
@@ -156,12 +156,12 @@ static void pipe_read(int fd, short ev, void *arg) {
 		case -1:
 			if (errno == EAGAIN)
 				return;
-			ERROR("Error while receiving from pipe read end on FD:", fd);
+			error("Error while receiving from pipe read end on FD:", fd);
 			retcode = MP_ERR_PIPE_READ;
 			event_base_loopbreak(ev_base);
 			return;
 		case 0:
-			INFO("Pipe with read end on FD: %d was closed from child", fd);
+			info("Pipe with read end on FD: %d was closed from child", fd);
 			event_base_loopbreak(ev_base);
 			return;
 	}
@@ -175,7 +175,7 @@ static void pipe_read(int fd, short ev, void *arg) {
 				buff_data(data, &buff_ptr, &nbytes);
 				break;
 			default:
-				ERROR("Invalid pipe state");
+				error("Invalid pipe state");
 				retcode = MP_ERR_PIPE_PROTOCOL;
 				event_base_loopbreak(ev_base);
 				break;

@@ -36,17 +36,17 @@ static int setup_sock(int *fd) {
 	TRACE_FUNC;
 	*fd = socket(AF_INET6, SOCK_STREAM, 0);
 	if (*fd == -1) {
-		ERROR("Couldn't create socket");
+		error("Couldn't create socket");
 		return -1;
 	}
 	int flag = 1;
 	if (setsockopt(*fd, SOL_SOCKET, SO_REUSEADDR, &flag, sizeof(flag)) != 0) {
-		ERROR("Couldn't set reuse of local adresses on socket with FD: %d", *fd);
+		error("Couldn't set reuse of local adresses on socket with FD: %d", *fd);
 		return -1;
 	}
 	flag = 0;
 	if (setsockopt(*fd, IPPROTO_IPV6, IPV6_V6ONLY, &flag, sizeof(flag)) != 0) {
-		ERROR("Couldn't allow use of IPv4-mapped IPv6 addresses on socket with FD: %d",
+		error("Couldn't allow use of IPv4-mapped IPv6 addresses on socket with FD: %d",
 		*fd);
 		return -1;
 	}
@@ -63,7 +63,7 @@ static int bind_to_port(int fd, uint16_t port) {
 	listen_addr.sin6_addr = in6addr_any;
 	listen_addr.sin6_port = htons(port);
 	if (bind(fd, (struct sockaddr *)&listen_addr, sizeof(listen_addr)) != 0) {
-		ERROR("Couldn't bind to port %d on socket with FD: %d", port, fd);
+		error("Couldn't bind to port %d on socket with FD: %d", port, fd);
 		return -1;
 	}
 	return 0;
@@ -72,11 +72,11 @@ static int bind_to_port(int fd, uint16_t port) {
 static int drop_priviledges(const char *username) {
 	TRACE_FUNC;
 	if (geteuid()) {
-		INFO("running under non priviledged user");
+		info("running under non priviledged user");
 		if (prctl(PR_SET_NO_NEW_PRIVS, 1, 0, 0, 0))
 			goto err;
 	} else {
-		INFO("running under privildged user, switching to user: %s", username);
+		info("running under privildged user, switching to user: %s", username);
 		// Chroot and change user and group only if we are root
 		struct passwd *user = getpwnam(username);
 		if (!user || chroot("/var/empty") || chdir("/") ||
@@ -89,13 +89,13 @@ static int drop_priviledges(const char *username) {
 	return 0;
 	
 	err:
-	ERROR("Couldn't drop priviledges");
+	error("Couldn't drop priviledges");
 	return -1;
 }
 
 int handle_child(struct service_data *data) {
 	TRACE_FUNC;
-	NOTICE("started to run on port: %d", data->port);
+	notice("started to run on port: %d", data->port);
 	close(data->pipe[0]); // close pipe read end
 	int exit_code = EXIT_SUCCESS;
 	int listen_fd = -1;
@@ -106,12 +106,12 @@ int handle_child(struct service_data *data) {
 		goto close_listen_fd;
 	}
 	if (listen(listen_fd, 5) != 0) {
-		ERROR("Couldn't listen on socket with FD: %d", listen_fd);
+		error("Couldn't listen on socket with FD: %d", listen_fd);
 		exit_code = EXIT_FAILURE;
 		goto close_listen_fd;
 	}
-	INFO("listening on socket with FD: %d", listen_fd);
-	INFO("sending data to pipe write end with FD: %d", data->pipe[1]);
+	info("listening on socket with FD: %d", listen_fd);
+	info("sending data to pipe write end with FD: %d", data->pipe[1]);
 	prctl(PR_SET_PDEATHSIG, SIGKILL);
 	setlocale(LC_ALL, "C"); // Unset any locale to hide system locales
 	switch (data->type) {

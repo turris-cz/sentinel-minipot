@@ -179,7 +179,7 @@ static int alloc_glob_res() {
 	event_base_free(ev_base);
 
 	err1:
-	ERROR("Couldn't allocate global resources");
+	error("Couldn't allocate global resources");
 	return -1;
 }
 
@@ -230,7 +230,7 @@ static void close_conn(struct conn_data *conn_data) {
 	event_del(conn_data->read_ev);
 	event_del(conn_data->con_tout_ev);
 	event_del(conn_data->inac_tout_ev);
-	INFO("Connection with FD: %d was closed",conn_data->fd);
+	info("Connection with FD: %d was closed",conn_data->fd);
 	close(conn_data->fd);
 	conn_data->fd = -1;
 	event_add(accept_ev, NULL);
@@ -319,7 +319,7 @@ static int pass_cmd(struct conn_data *conn_data,  uint8_t *param, size_t param_l
 			return -1;
 		conn_data->try_count++;
 		if (conn_data->try_count == LOG_ATMPS_CNT) {
-			INFO("Login attempt limit was reached on connection with FD: %d",
+			info("Login attempt limit was reached on connection with FD: %d",
 				conn_data->fd);
 			return -1;
 		}
@@ -383,7 +383,7 @@ static int proc_cmd(struct conn_data *conn_data) {
 			case OPTS:
 				return opts_cmd(conn_data, param, param_len);
 			default:
-				ERROR("Invalid FTP command on connection with FD: %d",
+				error("Invalid FTP command on connection with FD: %d",
 					conn_data->fd);
 				return -1;
 		}
@@ -445,7 +445,7 @@ static void on_recv(int fd, short ev, void *arg) {
 		case -1:
 			if (errno == EAGAIN)
 				return;
-			INFO("Receive error on connection with FD: %d", fd);
+			info("Receive error on connection with FD: %d", fd);
 		case 0:
 			close_conn(conn_data);
 			return;
@@ -461,7 +461,7 @@ static void on_accept(int listen_fd, short ev, void *arg) {
 	socklen_t conn_addr_len = sizeof(conn_addr);
 	int conn_fd = accept(listen_fd, (struct sockaddr *)&conn_addr, &conn_addr_len);
 	if (conn_fd < 0) {
-		ERROR("Couldn't accept connection on socket with FD: %d", listen_fd);
+		error("Couldn't accept connection on socket with FD: %d", listen_fd);
 		return;
 	}
 	if (setnonblock(conn_fd) != 0) {
@@ -470,7 +470,7 @@ static void on_accept(int listen_fd, short ev, void *arg) {
 	}
 	struct conn_data *conn_data = get_conn_data(conn_fd);
 	if (conn_data == NULL) {
-		INFO("No free conn_data slots. Refusing connection.");
+		info("No free conn_data slots. Refusing connection.");
 		close(conn_fd);
 		return;
 	}
@@ -493,7 +493,7 @@ static void on_accept(int listen_fd, short ev, void *arg) {
 	tm = (struct timeval) {INACT_TIMEOUT, 0};
 	evtimer_add(conn_data->inac_tout_ev, &tm);
 	report_connect(conn_data);
-	INFO("Accepted connection with FD: %d", conn_data->fd);
+	info("Accepted connection with FD: %d", conn_data->fd);
 }
 
 int handle_ftp(int listen_fd, int pipe_write_fd) {
@@ -506,7 +506,7 @@ int handle_ftp(int listen_fd, int pipe_write_fd) {
 		return EXIT_FAILURE;
 	struct event *sigint_ev = event_new(ev_base, SIGINT, EV_SIGNAL, on_sigint, ev_base);
 	if (sigint_ev == NULL) {
-		ERROR("Couldn't create sigint event");
+		error("Couldn't create sigint event");
 		exit_code = EXIT_FAILURE;
 		goto sigint_ev_err;
 	}

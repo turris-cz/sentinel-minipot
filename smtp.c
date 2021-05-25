@@ -259,7 +259,7 @@ static int alloc_glob_res() {
 	event_base_free(ev_base);
 
 	err1:
-	ERROR("Couldn't allocate global resources");
+	error("Couldn't allocate global resources");
 	return -1;
 }
 
@@ -313,7 +313,7 @@ static void close_conn(struct conn_data *conn_data) {
 	event_del(conn_data->read_ev);
 	event_del(conn_data->con_tout_ev);
 	event_del(conn_data->inac_tout_ev);
-	INFO("Connection with FD: %d was closed",conn_data->fd);
+	info("Connection with FD: %d was closed",conn_data->fd);
 	close(conn_data->fd);
 	conn_data->fd = -1;
 	event_add(accept_ev, NULL);
@@ -330,7 +330,7 @@ static int error_incr(struct conn_data *conn_data) {
 	TRACE_FUNC_FD(conn_data->fd);
 	conn_data->error_cnt++;
 	if (conn_data->error_cnt == ERROR_LIMIT) {
-		INFO("Login attempt limit was reached on connection with FD: %d",
+		info("Login attempt limit was reached on connection with FD: %d",
 			conn_data->fd);
 		char *mesg;
 		concat_mesg(&mesg, 3, TOO_MUCH_ERR_RESP_PART1, host_name, TOO_MUCH_ERR_RESP_PART2);
@@ -511,7 +511,7 @@ static int data_cmd(struct conn_data *conn_data) {
 		case HELO_MAIL_SENT:
 			return send_and_err_incr(conn_data, DATA_554_RESP);
 		default:
-			ERROR("Invalid protocol state on connection with FD: %d",
+			error("Invalid protocol state on connection with FD: %d",
 				conn_data->fd);
 			return -1;
 	}
@@ -576,7 +576,7 @@ static int mail_cmd(struct conn_data *conn_data) {
 		case HELO_MAIL_SENT:
 			return send_and_err_incr(conn_data, MAIL_HELO_MAIL_RESP);
 		default:
-			ERROR("Invalid protocol state on connection with FD: %d",
+			error("Invalid protocol state on connection with FD: %d",
 				conn_data->fd);
 			return -1;
 	}
@@ -646,7 +646,7 @@ static int rcpt_cmd(struct conn_data *conn_data) {
 		case HELO_MAIL_SENT:
 			return rcpt_cmd_helo_mail_sent(conn_data);
 		default:
-			ERROR("Invalid protocol state on connection with FD: %d",
+			error("Invalid protocol state on connection with FD: %d",
 				conn_data->fd);
 			return -1;
 	}
@@ -685,7 +685,7 @@ static int etrn_cmd(struct conn_data *conn_data) {
 		case HELO_MAIL_SENT:
 			return send_and_err_incr(conn_data, ETRN_HELO_MAIL_RESP);
 		default:
-			ERROR("Invalid protocol state on connection with FD: %d",
+			error("Invalid protocol state on connection with FD: %d",
 				conn_data->fd);
 			return -1;
 	}
@@ -712,7 +712,7 @@ static int auth_cmd_helo_sent_init_resp(struct conn_data *conn_data) {
 					conn_data->log_user_len = (size_t) dcoded_data_len;
 					return send_resp(conn_data, AUTH_LOG_ASK_FOR_PASSW);
 				default:
-					ERROR("Invalid SASL mechanism on connection with FD: %d",
+					error("Invalid SASL mechanism on connection with FD: %d",
 						conn_data->fd);
 					return -1;
 			}
@@ -740,7 +740,7 @@ static int auth_cmd_helo_sent_only_sasl(struct conn_data *conn_data) {
 				conn_data->prot_state = EXPECT_LOGIN_USER;
 				return send_resp(conn_data, AUTH_LOG_ASK_USER_RESP);
 			default:
-				ERROR("Invalid SASL mechanism on connection with FD: %d",
+				error("Invalid SASL mechanism on connection with FD: %d",
 					conn_data->fd);
 				return -1;
 		}
@@ -779,7 +779,7 @@ static int auth_cmd(struct conn_data *conn_data) {
 		case HELO_MAIL_SENT:
 			return send_and_err_incr(conn_data, AUTH_HELO_MAIL_RESP);
 		default:
-			ERROR("Invalid protocol state on connection with FD: %d", conn_data->fd);
+			error("Invalid protocol state on connection with FD: %d", conn_data->fd);
 			return -1;
 	}
 }
@@ -826,7 +826,7 @@ static int proc_cmd(struct conn_data *conn_data) {
 					case ETRN:
 						return etrn_cmd(conn_data);
 					default:
-						ERROR("Invalid command on connection with FD: %d",
+						error("Invalid command on connection with FD: %d",
 							conn_data->fd);
 						return -1;
 				}
@@ -849,7 +849,7 @@ static int proc_auth_data_empty(struct conn_data *conn_data) {
 			conn_data->prot_state = HELO_SENT;
 			return send_and_err_incr(conn_data, PROC_DATA_EXPCT_LOG_PASSW_EMPTY_LINE);
 		default:
-			ERROR("Invalid protocol state on connection with FD: %d",
+			error("Invalid protocol state on connection with FD: %d",
 				conn_data->fd);
 			return -1;
 	}
@@ -892,7 +892,7 @@ static int proc_auth_data(struct conn_data *conn_data) {
 					conn_data->prot_state = HELO_SENT;
 					return send_and_err_incr(conn_data, PROC_DATA_EXPCT_LOG_PASSW_EMPTY_LINE);
 				default:
-					ERROR("Invalid protocol state on connection with FD: %d",
+					error("Invalid protocol state on connection with FD: %d",
 						conn_data->fd);
 					return -1;
 			}
@@ -917,7 +917,7 @@ static int check_prot_state(struct conn_data *conn_data) {
 		case EXPECT_LOGIN_PASSW:
 			return proc_auth_data(conn_data);
 		default:
-			ERROR("Invalid protocol state on connection with FD: %d",
+			error("Invalid protocol state on connection with FD: %d",
 				conn_data->fd);
 			return -1;
 	}
@@ -983,7 +983,7 @@ static void on_recv(int fd, short ev, void *arg) {
 		case -1:
 			if (errno == EAGAIN)
 				return;
-			INFO("Receive error on connection with FD: %d", fd);
+			info("Receive error on connection with FD: %d", fd);
 		case 0:
 			close_conn(conn_data);
 			return;
@@ -1000,7 +1000,7 @@ static void on_accept(int listen_fd, short ev, void *arg) {
 	socklen_t conn_addr_len = sizeof(conn_addr);
 	int conn_fd = accept(listen_fd, (struct sockaddr *)&conn_addr, &conn_addr_len);
 	if (conn_fd < 0) {
-		ERROR("Couldn't accept connection on socket with FD: %d", listen_fd);
+		error("Couldn't accept connection on socket with FD: %d", listen_fd);
 		return;
 	}
 	if (setnonblock(conn_fd) != 0) {
@@ -1009,7 +1009,7 @@ static void on_accept(int listen_fd, short ev, void *arg) {
 	}
 	struct conn_data *conn_data = get_conn_data(conn_fd);
 	if (conn_data == NULL) {
-		INFO("No free conn_data slots. Refusing connection.");
+		info("No free conn_data slots. Refusing connection.");
 		// no free slots
 		close(conn_fd);
 		return;
@@ -1037,7 +1037,7 @@ static void on_accept(int listen_fd, short ev, void *arg) {
 	tm = (struct timeval) {INACT_TIMEOUT, 0};
 	evtimer_add(conn_data->inac_tout_ev, &tm);
 	report_connect(conn_data);
-	INFO("Accepted connection with FD: %d", conn_data->fd);
+	info("Accepted connection with FD: %d", conn_data->fd);
 }
 
 static void gen_host_name() {
@@ -1095,7 +1095,7 @@ int handle_smtp(int listen_fd, int pipe_write_fd) {
 		return EXIT_FAILURE;
 	struct event *sigint_ev = event_new(ev_base, SIGINT, EV_SIGNAL, on_sigint, ev_base);
 	if (sigint_ev == NULL) {
-		ERROR("Couldn't create sigint event");
+		error("Couldn't create sigint event");
 		exit_code = EXIT_FAILURE;
 		goto sigint_ev_err;
 	}

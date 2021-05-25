@@ -36,7 +36,7 @@ int setnonblock(int fd) {
 		return flags;
 	flags |= O_NONBLOCK;
 	if (fcntl(fd, F_SETFL, flags) < 0) {
-		ERROR("Can't set nonblocking mode on FD: %d", fd);
+		error("Can't set nonblocking mode on FD: %d", fd);
 		return -1;
 	}
 	return 0;
@@ -60,7 +60,7 @@ int sockaddr_to_string(struct sockaddr_storage *conn_addr, char *str) {
 		inet_ntop(AF_INET, &connection_addr4->sin_addr, str, INET_ADDRSTRLEN);
 		return 0;
 	} else {
-		ERROR("Couldn't get IP adress from unsupported socket family type: %d",
+		error("Couldn't get IP adress from unsupported socket family type: %d",
 			conn_addr->ss_family);
 		return 1;
 	}
@@ -73,7 +73,7 @@ int send_all(int fd, const char *data, size_t amount) {
 		if (sent == -1) {
 			if (errno == EAGAIN || errno == EINTR)
 				continue;
-			INFO("Couldn't send data to FD: %d", fd);
+			info("Couldn't send data to FD: %d", fd);
 			return -1;
 		}
 		data += (size_t)sent;
@@ -95,7 +95,7 @@ int send_all(int fd, const char *data, size_t amount) {
 static uint8_t *skip_sel_bytes(uint8_t *str, size_t str_len, uint8_t *to_skip, size_t to_skip_len) {
 	TRACE_FUNC;
 	if (!str || str_len == 0 || !to_skip || to_skip_len == 0) {
-		ERROR("Wrong parameters passed to skip_sel_bytes");
+		error("Wrong parameters passed to skip_sel_bytes");
 		return str;
 	}
 	uint8_t *end_ptr = str + str_len;
@@ -126,7 +126,7 @@ static uint8_t *skip_sel_bytes(uint8_t *str, size_t str_len, uint8_t *to_skip, s
 static uint8_t *find_first_occur(uint8_t *str, size_t str_len, uint8_t *to_skip, size_t to_skip_len) {
 	TRACE_FUNC;
 	if (!str || str_len == 0 || !to_skip || to_skip_len == 0) {
-		ERROR("Wrong parameters passed to find_first_occur");
+		error("Wrong parameters passed to find_first_occur");
 		return NULL;
 	}
 	uint8_t *end_ptr = str + str_len;
@@ -178,7 +178,7 @@ size_t tokenize(uint8_t *str, size_t str_len, struct token *tokens, size_t token
 			}
 		}
 	}
-	WARNING("Maximum numbers of tokens reached");
+	warning("Maximum numbers of tokens reached");
 }
 
 void ev_base_discard_cb(int severity, const char *msg) {}
@@ -282,7 +282,7 @@ int check_serv_data(const uint8_t *buff, size_t len) {
 	if (state == S0) {
 		return 0;
 	} else {
-		TRACE("Data for server are invalid");
+		trace("Data for server are invalid");
 		return -1;
 	}
 }

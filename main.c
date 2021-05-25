@@ -42,7 +42,7 @@ static void sigchld_handler(int sig) {
 	int saved_errno = errno;
 	// wait for any child process, if no child process exited return immediately
 	while ((pid = waitpid(-1, &status, WNOHANG)) > 0) {
-		INFO("Child process with PID: %d exited with code %d.",
+		info("Child process with PID: %d exited with code %d.",
 			pid, WEXITSTATUS(status));
 		if (status != EXIT_SUCCESS)
 			master_pipe_break();
@@ -89,7 +89,7 @@ static int deploy_minipot(struct service_data *data, struct minipot_conf *conf, 
 	// read end setup
 	setnonblock(data->pipe[0]);
 	master_pipe_register_child(data->pipe[0]);
-	INFO("listening on data from %s with PID [%d] on pipe read end with FD: %d",
+	info("listening on data from %s with PID [%d] on pipe read end with FD: %d",
 		minipot_t_enum_str[conf->type], data->child_pid, data->pipe[0]);
 	return 0;
 }

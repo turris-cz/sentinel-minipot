@@ -261,7 +261,7 @@ static int alloc_glob_res() {
 	event_base_free(ev_base);
 
 	err1:
-	ERROR("Couldn't allocate global resources");
+	error("Couldn't allocate global resources");
 	return -1;
 }
 
@@ -328,7 +328,7 @@ static void close_conn(struct conn_data *conn_data) {
 	event_del(conn_data->read_ev);
 	event_del(conn_data->keep_alive_tout_ev);
 	event_del(conn_data->inac_tout_ev);
-	INFO("Connection with FD: %d was closed",conn_data->fd);
+	info("Connection with FD: %d was closed",conn_data->fd);
 	close(conn_data->fd);
 	conn_data->fd = -1;
 	event_add(accept_ev, NULL);
@@ -778,7 +778,7 @@ static int proc_header(struct conn_data *conn_data) {
 				case TRANSFER_ENCODING:
 					return proc_trans_enc_head(conn_data, header_val_str, header_val_str_len);
 				default:
-					ERROR("Invalid header name on connection with FD: %d",
+					error("Invalid header name on connection with FD: %d",
 						conn_data->fd);
 					return -1;
 			}
@@ -879,7 +879,7 @@ static int proc_line(struct conn_data *conn_data, uint8_t **buffer, size_t *byte
 					FLOW_GUARD(proc_chunk_end(conn_data));
 					break;
 				default:
-					ERROR("Invalid state on connection with FD: %d", conn_data->fd);
+					error("Invalid state on connection with FD: %d", conn_data->fd);
 					return -1;
 			}
 			reset_token_buff(conn_data);
@@ -896,7 +896,7 @@ static int proc_line(struct conn_data *conn_data, uint8_t **buffer, size_t *byte
 				send_bad_req(conn_data);
 				break;
 			default:
-				ERROR("Invalid state on connection with FD: %d", conn_data->fd);
+				error("Invalid state on connection with FD: %d", conn_data->fd);
 				break;
 		}
 		return -1;
@@ -934,7 +934,7 @@ static void proc_bytes(struct conn_data *conn_data, uint8_t *buff, size_t buff_l
 				}
 				break;
 			default:
-				ERROR("Invalid state on connection with FD: %d", conn_data->fd);
+				error("Invalid state on connection with FD: %d", conn_data->fd);
 				close_conn(conn_data);
 				run = false;
 				break;
@@ -957,7 +957,7 @@ static void on_recv(int fd, short ev, void *arg) {
 		case -1:
 			if (errno == EAGAIN)
 				return;
-			INFO("Receive error on connection with FD: %d", fd);
+			info("Receive error on connection with FD: %d", fd);
 		case 0:
 			close_conn(conn_data);
 			return;
@@ -975,7 +975,7 @@ static void on_accept(int listen_fd, short ev, void *arg) {
 	socklen_t conn_addr_len = sizeof(conn_addr);
 	int conn_fd = accept(listen_fd, (struct sockaddr *)&conn_addr, &conn_addr_len);
 	if (conn_fd < 0) {
-		INFO("No free conn_data slots. Refusing connection");
+		info("No free conn_data slots. Refusing connection");
 		return;
 	}
 	if (setnonblock(conn_fd) != 0) {
@@ -984,7 +984,7 @@ static void on_accept(int listen_fd, short ev, void *arg) {
 	}
 	struct conn_data *conn_data = get_conn_data(conn_fd);
 	if (conn_data == NULL) {
-		INFO("No free conn_data slots. Closing connection with FD :%d", conn_fd);
+		info("No free conn_data slots. Closing connection with FD :%d", conn_fd);
 		close(conn_fd);
 		return;
 	}
@@ -1000,7 +1000,7 @@ static void on_accept(int listen_fd, short ev, void *arg) {
 	evtimer_add(conn_data->inac_tout_ev, &tm);
 	evtimer_assign(conn_data->keep_alive_tout_ev, ev_base, on_timeout, conn_data);
 	report_connect(conn_data);
-	INFO("Accepted connection with FD: %d", conn_data->fd);
+	info("Accepted connection with FD: %d", conn_data->fd);
 }
 
 int handle_http(int listen_fd, int pipe_write_fd) {
@@ -1013,7 +1013,7 @@ int handle_http(int listen_fd, int pipe_write_fd) {
 		return EXIT_FAILURE;
 	struct event *sigint_ev = event_new(ev_base, SIGINT, EV_SIGNAL, on_sigint, ev_base);
 	if (sigint_ev == NULL) {
-		ERROR("Couldn't create sigint event");
+		error("Couldn't create sigint event");
 		exit_code = EXIT_FAILURE;
 		goto sigint_ev_err;
 	}
