@@ -1,3 +1,7 @@
+EXTRA_DIST += $(gperf_files)
+
+if GPERF_GENERATE
+
 gperf_V = $(gperf_V_@AM_V@)
 gperf_V_ = $(gperf_V_@AM_DEFAULT_V@)
 gperf_V_0 = @echo "  GPERF   " $@;
@@ -7,10 +11,9 @@ gperf_V_0 = @echo "  GPERF   " $@;
 
 CLEANFILES = $(gperf_files)
 
-.PHONY: gen-gperf
-gen-gperf: $(gperf_files)
-
 # Suffix rule for .c tries to be applied on .gperf.c and that leads to warning on
 # circular dependency. Adding .gperf to list of suffixes overrules .c suffix and
 # resolves circular dependency.
 SUFFIXES = .gperf
+
+endif

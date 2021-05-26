@@ -1,6 +1,6 @@
 TESTS += %reldir%/tests
 
-check_PROGRAMS = %reldir%/tests
+check_PROGRAMS += %reldir%/tests
 %canon_reldir%_tests_SOURCES = \
 	$(minipot_sources) \
 	%reldir%/unit_tests.c \

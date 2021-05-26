@@ -1,9 +1,7 @@
 TESTS =
 check_PROGRAMS =
 
-if ENABLE_TESTS
 include $(srcdir)/%reldir%/unit/Makefile.am
-endif
 
 
 LOG_DRIVER = \
