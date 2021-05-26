@@ -1,5 +1,5 @@
 #include <check.h>
-#include "utils.h"
+#include "../../src/utils.h"
 
 const uint8_t first_b_errors[][1] = {0, 128, 193, 245, 255};
 
