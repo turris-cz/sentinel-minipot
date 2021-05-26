@@ -26,6 +26,9 @@ endef
 $(foreach tool,$(valgrind_tools),$(eval $(call check_valgrind_rule,$(tool))))
 
 # Coverage #######################################################################
+CODE_COVERAGE_LCOV_OPTIONS := --no-external
+CODE_COVERAGE_GENHTML_OPTIONS := --prefix $(dir $(abs_top_builddir))
+
 include $(srcdir)/aminclude_static.am
 
 clean-local: code-coverage-clean

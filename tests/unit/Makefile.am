@@ -7,7 +7,11 @@ check_PROGRAMS += %reldir%/tests
 	%reldir%/check_serv_data.c
 %canon_reldir%_tests_CFLAGS = \
 	$(sentinel_minipot_CFLAGS) \
-	$(CHECK_FLAGS)
+	${CHECK_FLAGS} \
+	${CODE_COVERAGE_CFLAGS}
 %canon_reldir%_tests_LDADD = \
 	$(sentinel_minipot_LDADD) \
-	$(CHECK_LIBS)
+	${CHECK_LIBS} \
+	${CODE_COVERAGE_LIBS}
+
+$(%canon_reldir%_tests_OBJECTS): $(minipot_gperf)
