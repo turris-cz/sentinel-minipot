@@ -18,6 +18,8 @@ PKG_CHECK_MODULES([msgpack], [msgpack])
 PKG_CHECK_MODULES([libevent], [libevent])
 PKG_CHECK_MODULES([base64c], [base64c])
 PKG_CHECK_MODULES([logc], [logc >= 0.2.0 logc_argp])
+PKG_CHECK_MODULES([czmq_logc], [libczmq_logc])
+PKG_CHECK_MODULES([libevent_logc], [libevent_logc])
 
 AC_LINK_IFELSE(
   [AC_LANG_PROGRAM([#include <argp.h>],[argp_parse(0,1,NULL,0,0,0);])],,

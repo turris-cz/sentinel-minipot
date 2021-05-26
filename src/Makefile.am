@@ -36,6 +36,8 @@ sentinel_minipot_CFLAGS = \
 	${libevent_CFLAGS} \
 	${base64c_CFLAGS} \
 	${logc_CFLAGS} \
+	${czmq_logc_CFLAGS} \
+	${libevent_logc_CFLAGS} \
 	${CODE_COVERAGE_CFLAGS}
 
 sentinel_minipot_LDADD = \
@@ -44,6 +46,8 @@ sentinel_minipot_LDADD = \
 	${libevent_LIBS} \
 	${base64c_LIBS} \
 	${logc_LIBS} \
+	${czmq_logc_LIBS} \
+	${libevent_logc_LIBS} \
 	${CODE_COVERAGE_LIBS}
 
 minipot_gperf = \

@@ -17,6 +17,8 @@
  */
 
 #include "log.h"
+#include "czmq_logc.h"
+#include "event2/logc.h"
 
 APP_LOG(sentinel_minipots);
 

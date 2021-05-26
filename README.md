@@ -8,6 +8,8 @@ Recorded events of peer connection and authentication are logged to Sentinel pro
  - libevent
  - libmsgpack
  - [base64c](https://gitlab.nic.cz/turris/base64c)
+ - [logc](https://gitlab.nic.cz/turris/logc)
+ - [logc-libs](https://gitlab.nic.cz/turris/logc-libs)
 
 for non glibc:
  - [argp-standalone](http://www.lysator.liu.se/~nisse/misc/)
