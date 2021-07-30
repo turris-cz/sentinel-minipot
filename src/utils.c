@@ -115,44 +115,34 @@ const uint8_t *find_first_occur(const uint8_t *str, size_t str_len,
 	return str;
 }
 
-size_t tokenize(uint8_t *str, size_t str_len, struct token *tokens, size_t tokens_len, uint8_t *separators, size_t sep_len) {
+size_t tokenize(const uint8_t *str, size_t str_len, struct token *tokens,
+		size_t tokens_len, const uint8_t *separators, size_t sep_len) {
 	TRACE_FUNC;
-	uint8_t *str_end = str + str_len - 1;
-	uint8_t *token_start = str;
-	size_t tokens_cnt = 0;
-	for (size_t i = 0; i < tokens_len; i++) {
-		token_start = skip_sel_bytes(token_start, str_end - token_start + 1, separators, sep_len);
-		if (token_start == str_end) {
-			// check last byte
-			for (size_t j = 0; j < sep_len; j++) {
-				if (*token_start == separators[j]) {
-					// no more tokens
-					return tokens_cnt;
-				}
-			}
-			// token of len 1 at the end of buffer
-			tokens_cnt++;
-			tokens[i].start_ptr = token_start;
-			tokens[i].len = 1;
-			return tokens_cnt;
+	assert(str);
+	assert(tokens);
+	assert(separators);
 
-		} else {
-			// token
-			tokens_cnt++;
-			tokens[i].start_ptr = token_start;
-			uint8_t *first_ps_after_token = find_first_occur(token_start, str_end - token_start + 1, separators, sep_len);
-			if (first_ps_after_token != NULL) {
-				// maybe more tokens
-				tokens[i].len = first_ps_after_token - token_start;
-				token_start = first_ps_after_token;
-			} else {
-				// no more tokens
-				tokens[i].len = str_end - token_start + 1;
-				return tokens_cnt;
-			}
-		}
+	size_t tokens_cnt = 0;
+	const uint8_t *str_end = str + str_len;
+	const uint8_t *token_start = str;
+	size_t token_len = str_len;
+
+	for (size_t i = 0; i < tokens_len; i++) {
+		token_start = skip_sel_bytes(token_start, token_len, separators, sep_len);
+		if (token_start == str_end)
+			break;
+		token_len = str_end - token_start;
+		const uint8_t *token_end = find_first_occur(token_start, token_len,
+			separators, sep_len);
+		// fill token
+		tokens_cnt++;
+		tokens[i].start_ptr = token_start;
+		tokens[i].len = token_end - token_start;
+		if (token_end == str_end)
+			break;
+		token_start = token_end;
 	}
-	warning("Maximum numbers of tokens reached");
+	return tokens_cnt;
 }
 
 void ev_base_discard_cb(int severity, const char *msg) {}

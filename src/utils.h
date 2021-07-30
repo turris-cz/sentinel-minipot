@@ -103,17 +103,23 @@ const uint8_t *find_first_occur(const uint8_t *str, size_t str_len,
 // separators. Each token in saved in output array of token structs.
 // str: pointer to the string
 // str_len: length of the string
-// tokens: start pointer to array of token structs
+// tokens: pointer to array of token structs
 // tokens_len: length of token structs array
 // separators: pointer to array of bytes/chars
 // 		Each byte/char is considered as a separator.
 // sep_len: number of separators bytes/chars
 // There can be more separators between two tokens. Separators before first and
-// after last token are skipped. Caller is responsible for proper allocation
-// and free of enough tokens structs. It is recomended to allocate memory for
-// maximum number of tokens which can be found: str_len / 2.
-// Returns number of found tokens.
-size_t tokenize(uint8_t *str, size_t str_len, struct token *tokens, size_t tokens_len, uint8_t *separators, size_t sep_len);
+// after last token are ignored.
+// It fills up maximum token_len tokens even if there are more tokens in the string.
+// Caller is responsible for allocation of enough tokens structs and their free. 
+// It is recomended to allocate memory for maximum number of tokens which can
+// be found: (str_len / 2) + 1.
+// Does assert check for str, tokens, separators.
+// If str_len, tokens_len is 0 returns 0 and fills no token struct.
+// If separator_len is 0 returns 1 - the whole string is one token.
+// Returns number of filled token structs.
+size_t tokenize(const uint8_t *str, size_t str_len, struct token *tokens,
+	size_t tokens_len, const uint8_t *separators, size_t sep_len);
 
 // Event base logging callback handler. It is empty procedure to supress any
 // logging of an event base. First, it must be set up using event_set_log_callback
