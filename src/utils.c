@@ -100,30 +100,19 @@ cont:
 	return str;
 }
 
-// Finds first occurence of given bytes in given string.
-// str: pointer to the string
-// str_len: length of the string
-// to_skip: pointer to array of bytes/chars to be searched for
-// 		 Presence of each byte/char is going to be evaluated.
-// Returns pointer to first character in the string matching any byte from
-// to_skip. If str is NULL or to_skip is NULL or str_len is 0 or to_skip_len is
-// 0, it returns NULL. If NO occurance of evaluated bytes is found, it returns NULL.
-static uint8_t *find_first_occur(uint8_t *str, size_t str_len, uint8_t *to_skip, size_t to_skip_len) {
+const uint8_t *find_first_occur(const uint8_t *str, size_t str_len,
+		const uint8_t *find, size_t find_len) {
 	TRACE_FUNC;
-	if (!str || str_len == 0 || !to_skip || to_skip_len == 0) {
-		error("Wrong parameters passed to find_first_occur");
-		return NULL;
-	}
-	uint8_t *end_ptr = str + str_len;
+	assert(str);
+	assert(find);
+	const uint8_t *end_ptr = str + str_len;
 	while (str < end_ptr) {
-		for (size_t i = 0; i < to_skip_len; i++) {
-			if (*str == to_skip[i]) {
+		for (size_t i = 0; i < find_len; i++)
+			if (*str == find[i])
 				return str;
-			}
-		}
 		str++;
 	}
-	return NULL;
+	return str;
 }
 
 size_t tokenize(uint8_t *str, size_t str_len, struct token *tokens, size_t tokens_len, uint8_t *separators, size_t sep_len) {

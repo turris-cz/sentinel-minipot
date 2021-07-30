@@ -86,6 +86,19 @@ int send_all(int fd, const char *data, size_t amount);
 const uint8_t *skip_sel_bytes(const uint8_t *str, size_t str_len,
 	const uint8_t *to_skip, size_t to_skip_len);
 
+// Finds first occurence of given bytes in given string.
+// str: pointer to the string
+// str_len: length of the string
+// find: pointer to array of bytes/chars to be searched for
+// 		 Presence of each byte/char is going to be evaluated.
+// Returns pointer to first character in the string matching any byte from find.
+// Does assert check for str and to_skip.
+// If str_len is 0 returns str.
+// If find_len is 0 or if finds no chars returns pointer to the first char
+// after the str.
+const uint8_t *find_first_occur(const uint8_t *str, size_t str_len,
+	const uint8_t *find, size_t find_len);
+
 // Splits string (NOT NULL TERMINATED C-STRING) into tokens according to given
 // separators. Each token in saved in output array of token structs.
 // str: pointer to the string
