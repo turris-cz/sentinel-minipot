@@ -5,8 +5,8 @@ check_PROGRAMS += %reldir%/tests
 	$(minipot_sources) \
 	%reldir%/unit_tests.c \
 	%reldir%/check_serv_data.c \
-	%reldir%/skip_sel_bytes.c
-
+	%reldir%/skip_sel_bytes.c \
+	%reldir%/find_first_occur.c
 
 %canon_reldir%_tests_CFLAGS = \
 	$(sentinel_minipot_CFLAGS) \
