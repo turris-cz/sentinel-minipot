@@ -6,12 +6,14 @@
 void suite_check_serv_data(SRunner*);
 void suite_skip_sel_bytes(SRunner *);
 void suite_find_first_occur(SRunner *runner);
+void suite_tokenize(SRunner *);
 
 int main(void) {
 	SRunner *runner = srunner_create(NULL);
 	suite_check_serv_data(runner);
 	suite_skip_sel_bytes(runner);
 	suite_find_first_occur(runner);
+	suite_tokenize(runner);
 
 	char *test_output_tap = getenv("TEST_OUTPUT_TAP");
 	if (test_output_tap && *test_output_tap != '\0')
