@@ -72,6 +72,20 @@ int sockaddr_to_string(struct sockaddr_storage *conn_addr, char *str);
 // If successful returns 0 othervise -1.
 int send_all(int fd, const char *data, size_t amount);
 
+// Skips given bytes from given string starting at first byte of the string.
+// str: pointer to the string
+// str_len: length of the string
+// to_skip: pointer to array of bytes/chars to be skipped
+// 		Each byte/char is going to be skipped.
+// to_skip_len: length of to_skip array
+// Returns pointer to first byte in string not contained in bytes to skip.
+// Does assert of str and to_skip.
+// If str_len or to_skip_len is 0 str is returned.
+// If all bytes/chars are skipped it returns pointer to the fisrt byte after
+// the string.
+const uint8_t *skip_sel_bytes(const uint8_t *str, size_t str_len,
+	const uint8_t *to_skip, size_t to_skip_len);
+
 // Splits string (NOT NULL TERMINATED C-STRING) into tokens according to given
 // separators. Each token in saved in output array of token structs.
 // str: pointer to the string

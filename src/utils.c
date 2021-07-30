@@ -82,37 +82,22 @@ int send_all(int fd, const char *data, size_t amount) {
 	return 0;
 }
 
-// Skips given bytes from given string starting at first byte of the string.
-// str: pointer to the string
-// str_len: length of the string
-// to_skip: pointer to array of bytes/chars to be skipped
-// 		Each byte/char is going to be skipped.
-// to_skip_len: length of to_skip array
-// If str_len is 0 or to_skip_len is 0 or str is NULL or to_skip is NULL, str
-// is returned. Returns pointer to first byte in string not contained in bytes
-// to skip. If all bytes/chars are skipped it returns pointer to the last
-// character of the string.
-static uint8_t *skip_sel_bytes(uint8_t *str, size_t str_len, uint8_t *to_skip, size_t to_skip_len) {
+const uint8_t *skip_sel_bytes(const uint8_t *str, size_t str_len,
+		const uint8_t *to_skip, size_t to_skip_len) {
 	TRACE_FUNC;
-	if (!str || str_len == 0 || !to_skip || to_skip_len == 0) {
-		error("Wrong parameters passed to skip_sel_bytes");
-		return str;
-	}
-	uint8_t *end_ptr = str + str_len;
-	main:
+	assert(str);
+	assert(to_skip);
+	const uint8_t *end_ptr = str + str_len;
+cont:
 	while (str < end_ptr) {
-		for (size_t i = 0; i < to_skip_len; i++) {
+		for (size_t i = 0; i < to_skip_len; i++)
 			if (*str == to_skip[i]) {
 				str++;
-				goto main;
+				goto cont;
 			}
-		}
 		break;
 	}
-	if (str == end_ptr)
-		return str -1;
-	else
-		return str;
+	return str;
 }
 
 // Finds first occurence of given bytes in given string.
