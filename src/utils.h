@@ -47,7 +47,7 @@
 #define TRACE_FUNC_P(FORMAT, ...) trace("%s (" FORMAT ")", __func__, __VA_ARGS__)
 
 struct token{
-	uint8_t *start_ptr;
+	const uint8_t *start_ptr;
 	size_t len;
 };
 

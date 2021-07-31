@@ -674,7 +674,7 @@ static int proc_con_len_head(struct conn_data *conn_data, uint8_t *val, size_t l
 		FLOW_GUARD_WITH_RESP(tokens_cnt != 1, conn_data);
 		// we have to create c-string for strtoll
 		// in this stage it is safe
-		tokens[0].start_ptr[tokens[0].len] = 0 ;
+		*((uint8_t*)(tokens[0].start_ptr) + tokens[0].len) = 0 ;
 		char *end_ptr;
 		errno = 0;
 		int64_t result = strtoll(tokens[0].start_ptr, &end_ptr, 10);
