@@ -359,7 +359,7 @@ static int send_bad_req(struct conn_data *conn_data) {
 	char *time_str;
 	fill_time(&time_str);
 	char *mesg;
-	concat_mesg(&mesg, 3, BAD_REQ_PART1, time_str, BAD_REQ_PART2);
+	concat_str(&mesg, 3, BAD_REQ_PART1, time_str, BAD_REQ_PART2);
 	int ret = send_resp(conn_data, mesg);
 	free(time_str);
 	free(mesg);
@@ -371,7 +371,7 @@ static int send_uri_too_long(struct conn_data *conn_data) {
 	char *time_str;
 	fill_time(&time_str);
 	char *mesg;
-	concat_mesg(&mesg, 3, URI_TOO_LONG_PART1, time_str, URI_TOO_LONG_PART2);
+	concat_str(&mesg, 3, URI_TOO_LONG_PART1, time_str, URI_TOO_LONG_PART2);
 	int ret = send_resp(conn_data, mesg);
 	free(time_str);
 	free(mesg);
@@ -383,7 +383,7 @@ static int send_unauth(struct conn_data *conn_data) {
 	char *time_str;
 	fill_time(&time_str);
 	char *mesg;
-	concat_mesg(&mesg, 3, UNAUTH_REQ_PART1, time_str, UNAUTH_REQ_PART2);
+	concat_str(&mesg, 3, UNAUTH_REQ_PART1, time_str, UNAUTH_REQ_PART2);
 	int ret = send_resp(conn_data, mesg);
 	free(time_str);
 	free(mesg);
