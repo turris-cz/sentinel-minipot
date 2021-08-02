@@ -7,7 +7,8 @@ check_PROGRAMS += %reldir%/tests
 	%reldir%/check_serv_data.c \
 	%reldir%/skip_sel_bytes.c \
 	%reldir%/find_first_occur.c \
-	%reldir%/tokenize.c
+	%reldir%/tokenize.c \
+	%reldir%/concat_str.c
 
 %canon_reldir%_tests_CFLAGS = \
 	$(sentinel_minipot_CFLAGS) \
