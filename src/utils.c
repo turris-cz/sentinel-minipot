@@ -172,6 +172,8 @@ void concat_str(char **buff, size_t args_num, ...) {
 
 int check_serv_data(const uint8_t *buff, size_t len) {
 	TRACE_FUNC;
+	if (len > 0)
+		assert(buff);
 	enum state{S0, S1, S2, S3, S4, S5, S6, S7} state = S0;
 	for (size_t i = 0; i < len; i++) {
 		switch (state) {
@@ -240,11 +242,8 @@ int check_serv_data(const uint8_t *buff, size_t len) {
 				break;
 		}
 	}
-	// check if the string is complete
-	if (state == S0) {
+	// check if the string is complete and NOT empty
+	if (state == S0 && len > 0)
 		return 0;
-	} else {
-		trace("Data for server are invalid");
-		return -1;
-	}
+	return -1;
 }

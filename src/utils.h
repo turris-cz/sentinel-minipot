@@ -148,6 +148,8 @@ void on_sigint(evutil_socket_t sig, short events, void *user_data);
 // https://bjoern.hoehrmann.de/utf-8/decoder/dfa/.
 // If data represents UTF-8 string and do NOT contain NULL byte(s) it returns 0
 // otherwise -1 is returned.
+// Data with length 0 are valid.
+// Does NULL assert for buff only if len > 0.
 int check_serv_data(const uint8_t *buff, size_t len);
 
 #endif /*__SENTINEL_MINIPOT_UTILS_H__*/
