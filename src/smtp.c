@@ -336,7 +336,7 @@ static int error_incr(struct conn_data *conn_data) {
 		info("Login attempt limit was reached on connection with FD: %d",
 			conn_data->fd);
 		char *mesg;
-		concat_mesg(&mesg, 3, TOO_MUCH_ERR_RESP_PART1, host_name, TOO_MUCH_ERR_RESP_PART2);
+		concat_str(&mesg, 3, TOO_MUCH_ERR_RESP_PART1, host_name, TOO_MUCH_ERR_RESP_PART2);
 		send_resp(conn_data, mesg);
 		free(mesg);
 		return -1;
@@ -499,7 +499,7 @@ static int ehlo_cmd(struct conn_data *conn_data) {
 	if (tokens_cnt > 1) {
 		conn_data->prot_state = HELO_SENT;
 		char *mesg;
-		concat_mesg(&mesg, 3, EHLO_250_RESP_PART1, host_name, EHLO_250_RESP_PART2);
+		concat_str(&mesg, 3, EHLO_250_RESP_PART1, host_name, EHLO_250_RESP_PART2);
 		int ret = send_resp(conn_data, mesg);
 		free(mesg);
 		return ret;
@@ -513,7 +513,7 @@ static int helo_cmd(struct conn_data *conn_data) {
 	if (tokens_cnt > 1 ) {
 		conn_data->prot_state = HELO_SENT;
 		char *mesg;
-		concat_mesg(&mesg, 3, HELO_250_RESP_PART1, host_name, HELO_250_RESP_PART2);
+		concat_str(&mesg, 3, HELO_250_RESP_PART1, host_name, HELO_250_RESP_PART2);
 		int ret = send_resp(conn_data, mesg);
 		free(mesg);
 		return ret;
@@ -630,7 +630,7 @@ static int rcpt_cmd_helo_mail_sent_params(struct conn_data *conn_data) {
 				// check for more tokens
 				if (tokens_cnt >= 3) {
 					char *mesg;
-					concat_mesg(&mesg, 3, RCPT_554_RESP_PART1, conn_data->ipaddr_str, RCPT_554_RESP_PART2);
+					concat_str(&mesg, 3, RCPT_554_RESP_PART1, conn_data->ipaddr_str, RCPT_554_RESP_PART2);
 					int ret = send_and_err_incr(conn_data, mesg);
 					free(mesg);
 					return ret;
@@ -644,7 +644,7 @@ static int rcpt_cmd_helo_mail_sent_params(struct conn_data *conn_data) {
 				return send_and_err_incr(conn_data, RCPT_501_RESP);
 			} else {
 				char *mesg;
-				concat_mesg(&mesg, 3, RCPT_554_RESP_PART1, conn_data->ipaddr_str, RCPT_554_RESP_PART2);
+				concat_str(&mesg, 3, RCPT_554_RESP_PART1, conn_data->ipaddr_str, RCPT_554_RESP_PART2);
 				int ret = send_and_err_incr(conn_data, mesg);
 				free(mesg);
 				return ret;
@@ -695,7 +695,7 @@ static int etrn_cmd_helo_sent(struct conn_data *conn_data) {
 			return send_and_err_incr(conn_data, ETRN_HELO_500_RESP);
 		case 2:{
 			char *mesg;
-			concat_mesg(&mesg, 3, ETRN_HELO_554_RESP_PART1, conn_data->ipaddr_str, ETRN_HELO_554_RESP_PART2);
+			concat_str(&mesg, 3, ETRN_HELO_554_RESP_PART1, conn_data->ipaddr_str, ETRN_HELO_554_RESP_PART2);
 			int ret = send_and_err_incr(conn_data, mesg);
 			free(mesg);
 			return ret;
@@ -1000,7 +1000,7 @@ static void on_timeout(int fd, short ev, void *arg){
 	TRACE_FUNC_FD(fd);
 	struct conn_data *conn_data = (struct conn_data *)arg;
 	char *mesg;
-	concat_mesg(&mesg, 3, TOUT_RESP_PART1, host_name, TOUT_RESP_PART2);
+	concat_str(&mesg, 3, TOUT_RESP_PART1, host_name, TOUT_RESP_PART2);
 	send_resp(conn_data, mesg);
 	free(mesg);
 	close_conn(conn_data);
@@ -1051,7 +1051,7 @@ static void on_accept(int listen_fd, short ev, void *arg) {
 		return;
 	}
 	char *mesg;
-	concat_mesg(&mesg, 3, WELCOME_RESP_PART1, host_name, WELCOME_RESP_PART2);
+	concat_str(&mesg, 3, WELCOME_RESP_PART1, host_name, WELCOME_RESP_PART2);
 	int ret = send_resp(conn_data, mesg);
 	free(mesg);
 	if (ret != 0) {
