@@ -242,8 +242,8 @@ int check_serv_data(const uint8_t *buff, size_t len) {
 				break;
 		}
 	}
-	// check if the string is complete and NOT empty
-	if (state == S0 && len > 0)
+	// check if the string is complete
+	if (state == S0)
 		return 0;
 	return -1;
 }

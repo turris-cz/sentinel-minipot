@@ -1,4 +1,5 @@
 #include <check.h>
+#include <signal.h>
 #include "../../src/utils.h"
 
 const uint8_t first_b_errors[][1] = {0, 128, 193, 245, 255};
@@ -350,7 +351,7 @@ START_TEST(test_second_b_missing) {
 END_TEST
 
 START_TEST(test_first_b_missing) {
-	ck_assert(!check_serv_data(NULL, 0));
+	ck_assert(!check_serv_data("", 0));
 }
 END_TEST
 
