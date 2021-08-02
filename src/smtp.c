@@ -1045,7 +1045,7 @@ static void on_accept(int listen_fd, short ev, void *arg) {
 		close(conn_fd);
 		return;
 	}
-	if (sockaddr_to_string(&conn_addr, conn_data->ipaddr_str) != 0) {
+	if (sockaddr2str(&conn_addr, conn_data->ipaddr_str) != 0) {
 		exit_code = EXIT_FAILURE;
 		event_base_loopbreak(ev_base);
 		return;
