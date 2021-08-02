@@ -41,28 +41,33 @@ int setnonblock(int fd) {
 	return 0;
 }
 
-int sockaddr_to_string(struct sockaddr_storage *conn_addr, char *str) {
+int sockaddr2str(const struct sockaddr_storage *sockaddr, char *buff) {
 	TRACE_FUNC;
-	if (conn_addr->ss_family == AF_INET6) {
+	assert(sockaddr);
+	assert(buff);
+	if (sockaddr->ss_family == AF_INET6) {
 		// IPv6
-		struct sockaddr_in6 *connection_addr6 = (struct sockaddr_in6 *)conn_addr;
-		struct in6_addr *v6 = &(connection_addr6->sin6_addr);
-		if (v6->s6_addr32[0] == 0 && v6->s6_addr32[1] == 0 &&
-			v6->s6_addr16[4] == 0 && v6->s6_addr16[5] == 0xFFFF)
-			inet_ntop(AF_INET, &v6->s6_addr32[3], str, INET_ADDRSTRLEN);
+		const struct sockaddr_in6 *ip_v6_sockaddr =
+			(const struct sockaddr_in6 *)sockaddr;
+		const struct in6_addr *addr = &(ip_v6_sockaddr->sin6_addr);
+		if (addr->s6_addr32[0] == 0 && addr->s6_addr32[1] == 0 &&
+			addr->s6_addr16[4] == 0 && addr->s6_addr16[5] == 0xFFFF)
+			// IPv4 mapped on IPv6 address with format 0:0:FFFF:<IPv4-address>
+			inet_ntop(AF_INET, &addr->s6_addr32[3], buff, INET_ADDRSTRLEN);
 		else
-			inet_ntop(AF_INET6, v6, str, INET6_ADDRSTRLEN);
-		return 0;
-	} else if (conn_addr->ss_family == AF_INET) {
+			// normal IPv6 address
+			inet_ntop(AF_INET6, addr, buff, INET6_ADDRSTRLEN);
+	} else if (sockaddr->ss_family == AF_INET) {
 		// IPv4
-		struct sockaddr_in *connection_addr4 = (struct sockaddr_in *)conn_addr;
-		inet_ntop(AF_INET, &connection_addr4->sin_addr, str, INET_ADDRSTRLEN);
-		return 0;
+		const struct sockaddr_in *ip_v4_sockaddr =
+			(const struct sockaddr_in *)sockaddr;
+		inet_ntop(AF_INET, &ip_v4_sockaddr->sin_addr, buff, INET_ADDRSTRLEN);
 	} else {
 		error("Couldn't get IP adress from unsupported socket family type: %d",
-			conn_addr->ss_family);
-		return 1;
+			sockaddr->ss_family);
+		return -1;
 	}
+	return 0;
 }
 
 int send_all(int fd, const char *data, size_t amount) {

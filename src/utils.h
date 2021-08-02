@@ -61,9 +61,10 @@ int setnonblock(int fd);
 // str: pointer to the buffer
 // Caller is responsible for proper memory allocation and free of str buffer.
 // It is highly recomended to use IP_ADDR_LEN macro for the buffer allocation.
-// Returns 0 if IPv4 or IPv6 adress was extracted to the buffer otherwise 1 is
+// Returns 0 if IPv4 or IPv6 adress was extracted to the buffer otherwise -1 is
 // returned.
-int sockaddr_to_string(struct sockaddr_storage *conn_addr, char *str);
+// Does assert check for sockaddr and str.
+int sockaddr2str(const struct sockaddr_storage *sockaddr, char *str);
 
 // Sends data to a socket.
 // fd: socket FD
