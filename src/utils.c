@@ -25,7 +25,6 @@
 #include <string.h>
 #include <stdlib.h>
 #include <event.h>
-
 #include "utils.h"
 
 int setnonblock(int fd) {
@@ -154,22 +153,21 @@ void on_sigint(evutil_socket_t sig, short events, void *user_data) {
 	event_base_loopbreak(evb);
 }
 
-void concat_mesg(char **buff, size_t args_num, ...) {
+void concat_str(char **buff, size_t args_num, ...) {
 	TRACE_FUNC;
+	assert(buff);
+	size_t len = 0;
+	FILE *tmp = open_memstream(buff, &len);
+	if (!tmp)
+		return;
 	va_list args;
-	size_t mesg_size = 0;
 	va_start(args, args_num);
-	for (size_t i = 0; i < args_num; i++)
-		mesg_size += strlen(va_arg(args, char*));
+	for (size_t i = 0; i < args_num; i++) {
+		char *arg = va_arg(args, char*);
+		fwrite(arg, sizeof(*arg), strlen(arg), tmp);
+	}
 	va_end(args);
-	mesg_size++; // terminating null byte
-
-	*buff = malloc(mesg_size);
-	**buff = 0;
-	va_start(args, args_num);
-	for (size_t i = 0; i < args_num; i++)
-		strcat(*buff, va_arg(args, char*));
-	va_end(args);
+	fclose(tmp);
 }
 
 int check_serv_data(const uint8_t *buff, size_t len) {

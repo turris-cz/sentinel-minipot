@@ -130,9 +130,10 @@ void ev_base_discard_cb(int severity, const char *msg);
 // buff: address of pointer to resulting string
 // args_num: number of strings to concat
 // 		Strings folllows as variable number of arguments.
-// First, it allocates exact needed memory at *buff address. Caller is responsible
-// for freeing allocated memory after using the string pointed by *buff.
-void concat_mesg(char **buff, size_t args_num, ...);
+// Caller is responsible for freeing allocated memory after using the string
+// pointed by *buff.
+// Does assert check for buff.
+void concat_str(char **buff, size_t args_num, ...);
 
 // SIGINT signal event base handler. Given event base is only broken inside
 // this procedure. First, it must be set up as callback to SIGINT signal by
