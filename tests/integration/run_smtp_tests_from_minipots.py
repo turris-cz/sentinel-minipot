@@ -20,60 +20,38 @@ if __name__ == "__main__":
     # TODO run tests here
 
     Test("empty_line_test_1", log_dir, (handler, sock), [(s.empty_cmd_test1, host, port)]).run()
-    Test("emptyline_test_2", log_dir, (handler, sock), [(s.empty_cmd_test2, host, port)]).run()
-    Test("empty_line_test_3", log_dir, (handler, sock), [(s.empty_cmd_test3, host, port)]).run()
 
     Test("unrecognized_cmd_test_1", log_dir, (handler, sock), [(s.unrec_cmd_test1, host, port)]).run()
     Test("unrecognized_cmd_test_2", log_dir, (handler, sock), [(s.unrec_cmd_test2, host, port)]).run()
 
     Test("noop_cmd_expect_helo_test_1", log_dir, (handler, sock), [(s.noop_cmd_expect_helo_test1, host, port)]).run()
-    Test("noop_cmd_expect_helo_test_2", log_dir, (handler, sock), [(s.noop_cmd_expect_helo_test2, host, port)]).run()
-    Test("noop_cmd_expect_helo_test_3", log_dir, (handler, sock), [(s.noop_cmd_expect_helo_test3, host, port)]).run()
     Test("noop_cmd_expect_helo_test_4", log_dir, (handler, sock), [(s.noop_cmd_expect_helo_test4, host, port)]).run()
 
     Test("rset_cmd_expect_helo_test_1", log_dir, (handler, sock), [(s.rset_cmd_expect_helo_test1, host, port)]).run()
-    Test("rset_cmd_expect_helo_test_2", log_dir, (handler, sock), [(s.rset_cmd_expect_helo_test2, host, port)]).run()
-    Test("rset_cmd_expect_helo_test_3", log_dir, (handler, sock), [(s.rset_cmd_expect_helo_test3, host, port)]).run()
     Test("rset_cmd_expect_helo_test_4", log_dir, (handler, sock), [(s.rset_cmd_expect_helo_test4, host, port)]).run()
 
     Test("quit_cmd_expect_helo_test_1", log_dir, (handler, sock), [(s.quit_cmd_expect_helo_test1, host, port)]).run()
-    Test("quit_cmd_expect_helo_test_2", log_dir, (handler, sock), [(s.quit_cmd_expect_helo_test2, host, port)]).run()
-    Test("quit_cmd_expect_helo_test_3", log_dir, (handler, sock), [(s.quit_cmd_expect_helo_test3, host, port)]).run()
     Test("quit_cmd_expect_helo_test_4", log_dir, (handler, sock), [(s.quit_cmd_expect_helo_test4, host, port)]).run()
 
     Test("mail_cmd_expect_helo_test_1", log_dir, (handler, sock), [(s.mail_cmd_ecpect_helo_test1, host, port)]).run()
-    Test("mail_cmd_expect_helo_test_2", log_dir, (handler, sock), [(s.mail_cmd_expect_helo_test2, host, port)]).run()
-    Test("mail_cmd_expect_helo_test_3", log_dir, (handler, sock), [(s.mail_cmd_expect_helo_test3, host, port)]).run()
     Test("mail_cmd_expect_helo_test_4", log_dir, (handler, sock), [(s.mail_cmd_expect_helo_test4, host, port)]).run()
 
     Test("auth_cmd_expect_helo_test_1", log_dir, (handler, sock), [(s.auth_cmd_ecpect_helo_test1, host, port)]).run()
-    Test("auth_cmd_expect_helo_test_2", log_dir, (handler, sock), [(s.auth_cmd_expect_helo_test2, host, port)]).run()
-    Test("auth_cmd_expect_helo_test_3", log_dir, (handler, sock), [(s.auth_cmd_expect_helo_test3, host, port)]).run()
     Test("auth_cmd_expect_helo_test_4", log_dir, (handler, sock), [(s.auth_cmd_expect_helo_test4, host, port)]).run()
 
     Test("etrn_cmd_expect_helo_test_1", log_dir, (handler, sock), [(s.etrn_cmd_ecpect_helo_test1, host, port)]).run()
-    Test("etrn_cmd_expect_helo_test_2", log_dir, (handler, sock), [(s.etrn_cmd_expect_helo_test2, host, port)]).run()
-    Test("etrn_cmd_expect_helo_test_3", log_dir, (handler, sock), [(s.etrn_cmd_expect_helo_test3, host, port)]).run()
     Test("etrn_cmd_expect_helo_test_4", log_dir, (handler, sock), [(s.etrn_cmd_expect_helo_test4, host, port)]).run()
 
     Test("rcpt_cmd_expect_helo_test_1", log_dir, (handler, sock), [(s.rcpt_cmd_ecpect_helo_test1, host, port)]).run()
-    Test("rcpt_cmd_expect_helo_test_2", log_dir, (handler, sock), [(s.rcpt_cmd_expect_helo_test2, host, port)]).run()
-    Test("rcpt_cmd_expect_helo_test_3", log_dir, (handler, sock), [(s.rcpt_cmd_expect_helo_test3, host, port)]).run()
     Test("rcpt_cmd_expect_helo_test_4", log_dir, (handler, sock), [(s.rcpt_cmd_expect_helo_test4, host, port)]).run()
 
     Test("data_cmd_expect_helo_test_1", log_dir, (handler, sock), [(s.data_cmd_ecpect_helo_test1, host, port)]).run()
-    Test("data_cmd_expect_helo_test_2", log_dir, (handler, sock), [(s.data_cmd_expect_helo_test2, host, port)]).run()
-    Test("data_cmd_expect_helo_test_3", log_dir, (handler, sock), [(s.data_cmd_expect_helo_test3, host, port)]).run()
     Test("data_cmd_expect_helo_test_4", log_dir, (handler, sock), [(s.data_cmd_expect_helo_test4, host, port)]).run()
 
     Test("helo_cmd_expect_helo_test_1", log_dir, (handler, sock), [(s.helo_cmd_ecpect_helo_test1, host, port)]).run()
-    Test("helo_cmd_expect_helo_test_2", log_dir, (handler, sock), [(s.helo_cmd_expect_helo_test2, host, port)]).run()
-    Test("helo_cmd_expect_helo_test_3", log_dir, (handler, sock), [(s.helo_cmd_expect_helo_test3, host, port)]).run()
     Test("helo_cmd_expect_helo_test_4", log_dir, (handler, sock), [(s.helo_cmd_expect_helo_test4, host, port)]).run()
 
     Test("ehlo_cmd_expect_helo_test_1", log_dir, (handler, sock), [(s.ehlo_cmd_ecpect_helo_test1, host, port)]).run()
-    Test("ehlo_cmd_expect_helo_test_2", log_dir, (handler, sock), [(s.ehlo_cmd_expect_helo_test2, host, port)]).run()
-    Test("ehlo_cmd_expect_helo_test_3", log_dir, (handler, sock), [(s.ehlo_cmd_expect_helo_test3, host, port)]).run()
     Test("ehlo_cmd_expect_helo_test_4", log_dir, (handler, sock), [(s.ehlo_cmd_expect_helo_test4, host, port)]).run()
 
     Test("etrn_cmd_helo_sent_test_1", log_dir, (handler, sock), [(s.etrn_cmd_helo_sent_test1, host, port)]).run()
@@ -96,30 +74,17 @@ if __name__ == "__main__":
 
     Test("auth_cmd_helo_sent_no_sasl_test_1", log_dir, (handler, sock),
          [(s.auth_cmd_helo_sent_no_sasl_test1, host, port)]).run()
-    Test("auth_cmd_helo_sent_no_sasl_test_2", log_dir, (handler, sock),
-         [(s.auth_cmd_helo_sent_no_sasl_test2, host, port)]).run()
 
     Test("auth_cmd_helo_sent_sasl_test_1", log_dir, (handler, sock), [(s.auth_cmd_helo_sent_sasl_test1, host, port)]).run()
-    Test("auth_cmd_helo_sent_sasl_test_2", log_dir, (handler, sock), [(s.auth_cmd_helo_sent_sasl_test2, host, port)]).run()
     Test("auth_cmd_helo_sent_sasl_test_3", log_dir, (handler, sock), [(s.auth_cmd_helo_sent_sasl_test3, host, port)]).run()
-    Test("auth_cmd_helo_sent_sasl_test_4", log_dir, (handler, sock), [(s.auth_cmd_helo_sent_sasl_test4, host, port)]).run()
     Test("auth_cmd_helo_sent_sasl_test_5", log_dir, (handler, sock), [(s.auth_cmd_helo_sent_sasl_test5, host, port)]).run()
-    Test("auth_cmd_helo_sent_sasl_test_6", log_dir, (handler, sock), [(s.auth_cmd_helo_sent_sasl_test6, host, port)]).run()
 
     Test("auth_cmd_helo_sent_init_resp_test_1", log_dir, (handler, sock),
          [(s.auth_cmd_helo_sent_init_resp_test1, host, port)]).run()
-    Test("auth_cmd_helo_sent_init_resp_test_2", log_dir, (handler, sock),
-         [(s.auth_cmd_helo_sent_init_resp_test2, host, port)]).run()
-    Test("auth_cmd_helo_sent_init_resp_test_3", log_dir, (handler, sock),
-         [(s.auth_cmd_helo_sent_init_resp_test3, host, port)]).run()
     Test("auth_cmd_helo_sent_init_resp_test_4", log_dir, (handler, sock),
          [(s.auth_cmd_helo_sent_init_resp_test4, host, port)]).run()
-    Test("auth_cmd_helo_sent_init_resp_test_5", log_dir, (handler, sock),
-         [(s.auth_cmd_helo_sent_init_resp_test5, host, port)]).run()
     Test("auth_cmd_helo_sent_init_resp_test_6", log_dir, (handler, sock),
          [(s.auth_cmd_helo_sent_init_resp_test6, host, port)]).run()
-    Test("auth_cmd_helo_sent_init_resp_test_7", log_dir, (handler, sock),
-         [(s.auth_cmd_helo_sent_init_resp_test7, host, port)]).run()
     Test("auth_cmd_helo_sent_init_resp_test_8", log_dir, (handler, sock),
          [(s.auth_cmd_helo_sent_init_resp_test8, host, port)]).run()
     Test("auth_cmd_helo_sent_init_resp_test_9", log_dir, (handler, sock),
