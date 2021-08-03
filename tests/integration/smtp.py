@@ -169,7 +169,7 @@ def gen_rand_param(len):
     return bytes([choice(bytevals) for _ in range(len)])
 
 
-def gen_cmd(cmd, params=[]):
+def gen_cmd(cmd, params=None):
     """ Generates command string and returns it as a bytes.
 
     Parameters:
@@ -177,10 +177,7 @@ def gen_cmd(cmd, params=[]):
             command keyword
         params: list of byte strings
             list of parameters """
-    c = cmd + gen_rand_delim(5)
-    for p in params:
-        c += p + gen_rand_delim(5)
-    return c + LF
+    return SP.join([cmd, *(params or [])]) + LF
 
 
 def gen_user(len):
@@ -242,52 +239,6 @@ def empty_cmd_test1(server_sock):
     response = recv_from_sock(server_sock)
     assert response[:len(MINIPOT_WELCOME_RESP)] == MINIPOT_WELCOME_RESP
     server_sock.sendall(LF)
-    response = recv_from_sock(server_sock)
-    assert response == MINIPOT_EMPTY_LINE_RESP
-    return [gen_connect_report(server_sock)]
-
-
-def empty_cmd_test2(server_sock):
-    """ Sends to Minipots:
-        full line of MINIPOT_TOKEN_SEPARATORS and LF
-    Required response from Minipots':
-        MINIPOT_WELCOME_RESP
-        MINIPOT_EMPTY_LINE_RESP
-    Required Minipots generated Sentinel message:
-        connect
-    More description:
-
-    Parameters:
-        server_sock: socket
-    Returns list of dictionaries - generated proxy reports or assert
-    exception if communication with minipot went wrong. """
-    response = recv_from_sock(server_sock)
-    assert response[:len(MINIPOT_WELCOME_RESP)] == MINIPOT_WELCOME_RESP
-    cmd = gen_rand_delim(MINIPOT_TOKEN_BUFF_LEN - 1) + LF
-    server_sock.sendall(cmd)
-    response = recv_from_sock(server_sock)
-    assert response == MINIPOT_EMPTY_LINE_RESP
-    return [gen_connect_report(server_sock)]
-
-
-def empty_cmd_test3(server_sock):
-    """ Sends to Minipots:
-        One random byte from MINIPOT_TOKEN_SEPARATORS and LF
-    Required response from Minipots':
-        MINIPOT_WELCOME_RESP
-        MINIPOT_EMPTY_LINE_RESP
-    Required Minipots generated Sentinel message:
-        connect
-    More description:
-
-    Parameters:
-        server_sock: socket
-    Returns list of dictionaries - generated proxy reports or assert
-    exception if communication with minipot went wrong. """
-    response = recv_from_sock(server_sock)
-    assert response[:len(MINIPOT_WELCOME_RESP)] == MINIPOT_WELCOME_RESP
-    cmd = gen_rand_delim(1) + LF
-    server_sock.sendall(cmd)
     response = recv_from_sock(server_sock)
     assert response == MINIPOT_EMPTY_LINE_RESP
     return [gen_connect_report(server_sock)]
@@ -363,52 +314,7 @@ def noop_cmd_expect_helo_test1(server_sock):
     exception if communication with minipot went wrong. """
     response = recv_from_sock(server_sock)
     assert response[:len(MINIPOT_WELCOME_RESP)] == MINIPOT_WELCOME_RESP
-    server_sock.sendall(NOOP + LF)
-    response = recv_from_sock(server_sock)
-    assert response == MINIPOT_OK_RESP
-    return [gen_connect_report(server_sock)]
-
-
-def noop_cmd_expect_helo_test2(server_sock):
-    """ Sends to Minipots:
-        noop command and MINIPOT_TOKEN_SEPARATORS before and after
-    Required response from Minipots':
-        MINIPOT_WELCOME_RESP
-        MINIPOT_OK_RESP
-    Required Minipots generated Sentinel message:
-        connect
-    More description:
-
-    Parameters:
-        server_sock: socket
-    Returns list of dictionaries - generated proxy reports or assert
-    exception if communication with minipot went wrong. """
-    response = recv_from_sock(server_sock)
-    assert response[:len(MINIPOT_WELCOME_RESP)] == MINIPOT_WELCOME_RESP
-    cmd = gen_rand_delim(randint(1, 100)) + gen_cmd(NOOP)
-    server_sock.sendall(cmd)
-    response = recv_from_sock(server_sock)
-    assert response == MINIPOT_OK_RESP
-    return [gen_connect_report(server_sock)]
-
-
-def noop_cmd_expect_helo_test3(server_sock):
-    """ Sends to Minipots:
-        noop command with one random byte as a parameter
-    Required response from Minipots':
-        MINIPOT_WELCOME_RESP
-        MINIPOT_OK_RESP
-    Required Minipots generated Sentinel message:
-        connect
-    More description:
-
-    Parameters:
-        server_sock: socket
-    Returns list of dictionaries - generated proxy reports or assert
-    exception if communication with minipot went wrong. """
-    response = recv_from_sock(server_sock)
-    assert response[:len(MINIPOT_WELCOME_RESP)] == MINIPOT_WELCOME_RESP
-    cmd = gen_cmd(NOOP, [gen_rand_param(1)])
+    cmd = gen_cmd(NOOP)
     server_sock.sendall(cmd)
     response = recv_from_sock(server_sock)
     assert response == MINIPOT_OK_RESP
@@ -458,55 +364,10 @@ def rset_cmd_expect_helo_test1(server_sock):
     exception if communication with minipot went wrong. """
     response = recv_from_sock(server_sock)
     assert response[:len(MINIPOT_WELCOME_RESP)] == MINIPOT_WELCOME_RESP
-    server_sock.sendall(RSET + LF)
-    response = recv_from_sock(server_sock)
-    assert response == MINIPOT_OK_RESP
-    return [gen_connect_report(server_sock)]
-
-
-def rset_cmd_expect_helo_test2(server_sock):
-    """ Sends to Minipots:
-        rset command with MINIPOT_TOKEN_SEPARATORS before and after
-    Required response from Minipots':
-        MINIPOT_WELCOME_RESP
-        MINIPOT_OK_RESP
-    Required Minipots generated Sentinel message:
-        connect
-    More description:
-
-    Parameters:
-        server_sock: socket
-    Returns list of dictionaries - generated proxy reports or assert
-    exception if communication with minipot went wrong. """
-    response = recv_from_sock(server_sock)
-    assert response[:len(MINIPOT_WELCOME_RESP)] == MINIPOT_WELCOME_RESP
-    cmd = gen_rand_delim(randint(1, 200)) + gen_cmd(RSET)
+    cmd = gen_cmd(RSET)
     server_sock.sendall(cmd)
     response = recv_from_sock(server_sock)
     assert response == MINIPOT_OK_RESP
-    return [gen_connect_report(server_sock)]
-
-
-def rset_cmd_expect_helo_test3(server_sock):
-    """ Sends to Minipots:
-        rset command with one random byte as a parameter
-    Required response from Minipots':
-        MINIPOT_WELCOME_RESP
-        MINIPOT_RSET_501_RESP
-    Required Minipots generated Sentinel message:
-        connect
-    More description:
-
-    Parameters:
-        server_sock: socket
-    Returns list of dictionaries - generated proxy reports or assert
-    exception if communication with minipot went wrong. """
-    response = recv_from_sock(server_sock)
-    assert response[:len(MINIPOT_WELCOME_RESP)] == MINIPOT_WELCOME_RESP
-    cmd = gen_cmd(RSET, [gen_rand_param(1)])
-    server_sock.sendall(cmd)
-    response = recv_from_sock(server_sock)
-    assert response == MINIPOT_RSET_501_RESP
     return [gen_connect_report(server_sock)]
 
 
@@ -553,52 +414,7 @@ def quit_cmd_expect_helo_test1(server_sock):
     exception if communication with minipot went wrong. """
     response = recv_from_sock(server_sock)
     assert response[:len(MINIPOT_WELCOME_RESP)] == MINIPOT_WELCOME_RESP
-    server_sock.sendall(QUIT + LF)
-    response = recv_from_sock(server_sock)
-    assert response == MINIPOT_QUIT_RESP
-    return [gen_connect_report(server_sock)]
-
-
-def quit_cmd_expect_helo_test2(server_sock):
-    """ Sends to Minipots:
-        quit command with MINIPOT_TOKEN_SEPARATORS before and after
-    Required response from Minipots':
-        MINIPOT_WELCOME_RESP
-        MINIPOT_QUIT_RESP
-    Required Minipots generated Sentinel message:
-        connect
-    More description:
-
-    Parameters:
-        server_sock: socket
-    Returns list of dictionaries - generated proxy reports or assert
-    exception if communication with minipot went wrong. """
-    response = recv_from_sock(server_sock)
-    assert response[:len(MINIPOT_WELCOME_RESP)] == MINIPOT_WELCOME_RESP
-    cmd = gen_rand_delim(randint(1, 100)) + gen_cmd(QUIT)
-    server_sock.sendall(cmd)
-    response = recv_from_sock(server_sock)
-    assert response == MINIPOT_QUIT_RESP
-    return [gen_connect_report(server_sock)]
-
-
-def quit_cmd_expect_helo_test3(server_sock):
-    """ Sends to Minipots:
-        quit command with one random byte as a parameter
-    Required response from Minipots':
-        MINIPOT_WELCOME_RESP
-        MINIPOT_QUIT_RESP
-    Required Minipots generated Sentinel message:
-        connect
-    More description:
-
-    Parameters:
-        server_sock: socket
-    Returns list of dictionaries - generated proxy reports or assert
-    exception if communication with minipot went wrong. """
-    response = recv_from_sock(server_sock)
-    assert response[:len(MINIPOT_WELCOME_RESP)] == MINIPOT_WELCOME_RESP
-    cmd = gen_cmd(QUIT, [gen_rand_param(1)])
+    cmd = gen_cmd(QUIT)
     server_sock.sendall(cmd)
     response = recv_from_sock(server_sock)
     assert response == MINIPOT_QUIT_RESP
@@ -648,52 +464,7 @@ def mail_cmd_ecpect_helo_test1(server_sock):
     exception if communication with minipot went wrong. """
     response = recv_from_sock(server_sock)
     assert response[:len(MINIPOT_WELCOME_RESP)] == MINIPOT_WELCOME_RESP
-    server_sock.sendall(MAIL + LF)
-    response = recv_from_sock(server_sock)
-    assert response == MINIPOT_MAIL_EXPECT_HELO_RESP
-    return [gen_connect_report(server_sock)]
-
-
-def mail_cmd_expect_helo_test2(server_sock):
-    """ Sends to Minipots:
-        mail command with MINIPOT_TOKEN_SEPARATORS before and after
-    Required response from Minipots':
-        MINIPOT_WELCOME_RESP
-        MINIPOT_MAIL_EXPECT_HELO_RESP
-    Required Minipots generated Sentinel message:
-        connect
-    More description:
-
-    Parameters:
-        server_sock: socket
-    Returns list of dictionaries - generated proxy reports or assert
-    exception if communication with minipot went wrong. """
-    response = recv_from_sock(server_sock)
-    assert response[:len(MINIPOT_WELCOME_RESP)] == MINIPOT_WELCOME_RESP
-    cmd = gen_rand_delim(randint(1, 100)) + gen_cmd(MAIL)
-    server_sock.sendall(cmd)
-    response = recv_from_sock(server_sock)
-    assert response == MINIPOT_MAIL_EXPECT_HELO_RESP
-    return [gen_connect_report(server_sock)]
-
-
-def mail_cmd_expect_helo_test3(server_sock):
-    """ Sends to Minipots:
-        mail command with one random byte as a parameter
-    Required response from Minipots':
-        MINIPOT_WELCOME_RESP
-        MINIPOT_MAIL_EXPECT_HELO_RESP
-    Required Minipots generated Sentinel message:
-        connect
-    More description:
-
-    Parameters:
-        server_sock: socket
-    Returns list of dictionaries - generated proxy reports or assert
-    exception if communication with minipot went wrong. """
-    response = recv_from_sock(server_sock)
-    assert response[:len(MINIPOT_WELCOME_RESP)] == MINIPOT_WELCOME_RESP
-    cmd = gen_cmd(MAIL, [gen_rand_param(1)])
+    cmd = gen_cmd(MAIL)
     server_sock.sendall(cmd)
     response = recv_from_sock(server_sock)
     assert response == MINIPOT_MAIL_EXPECT_HELO_RESP
@@ -743,52 +514,7 @@ def auth_cmd_ecpect_helo_test1(server_sock):
     exception if communication with minipot went wrong. """
     response = recv_from_sock(server_sock)
     assert response[:len(MINIPOT_WELCOME_RESP)] == MINIPOT_WELCOME_RESP
-    server_sock.sendall(AUTH + LF)
-    response = recv_from_sock(server_sock)
-    assert response == MINIPOT_AUTH_EXPECT_HELO_RESP
-    return [gen_connect_report(server_sock)]
-
-
-def auth_cmd_expect_helo_test2(server_sock):
-    """ Sends to Minipots:
-        auth command with MINIPOT_TOKEN_SEPARATORS before and after
-    Required response from Minipots':
-        MINIPOT_WELCOME_RESP
-        MINIPOT_AUTH_EXPECT_HELO_RESP
-    Required Minipots generated Sentinel message:
-        connect
-    More description:
-
-    Parameters:
-        server_sock: socket
-    Returns list of dictionaries - generated proxy reports or assert
-    exception if communication with minipot went wrong. """
-    response = recv_from_sock(server_sock)
-    assert response[:len(MINIPOT_WELCOME_RESP)] == MINIPOT_WELCOME_RESP
-    cmd = gen_rand_delim(randint(1, 100)) + gen_cmd(AUTH)
-    server_sock.sendall(cmd)
-    response = recv_from_sock(server_sock)
-    assert response == MINIPOT_AUTH_EXPECT_HELO_RESP
-    return [gen_connect_report(server_sock)]
-
-
-def auth_cmd_expect_helo_test3(server_sock):
-    """ Sends to Minipots:
-        auth command with one random byte as a parameter
-    Required response from Minipots':
-        MINIPOT_WELCOME_RESP
-        MINIPOT_AUTH_EXPECT_HELO_RESP
-    Required Minipots generated Sentinel message:
-        connect
-    More description:
-
-    Parameters:
-        server_sock: socket
-    Returns list of dictionaries - generated proxy reports or assert
-    exception if communication with minipot went wrong. """
-    response = recv_from_sock(server_sock)
-    assert response[:len(MINIPOT_WELCOME_RESP)] == MINIPOT_WELCOME_RESP
-    cmd = gen_cmd(AUTH, [gen_rand_param(1)])
+    cmd = gen_cmd(AUTH)
     server_sock.sendall(cmd)
     response = recv_from_sock(server_sock)
     assert response == MINIPOT_AUTH_EXPECT_HELO_RESP
@@ -838,52 +564,7 @@ def etrn_cmd_ecpect_helo_test1(server_sock):
     exception if communication with minipot went wrong. """
     response = recv_from_sock(server_sock)
     assert response[:len(MINIPOT_WELCOME_RESP)] == MINIPOT_WELCOME_RESP
-    server_sock.sendall(ETRN + LF)
-    response = recv_from_sock(server_sock)
-    assert response == MINIPOT_ETRN_EXPECT_HELO_RESP
-    return [gen_connect_report(server_sock)]
-
-
-def etrn_cmd_expect_helo_test2(server_sock):
-    """ Sends to Minipots:
-        etrn command with MINIPOT_TOKEN_SEPARATORS before and after
-    Required response from Minipots':
-        MINIPOT_WELCOME_RESP
-        MINIPOT_ETRN_EXPECT_HELO_RESP
-    Required Minipots generated Sentinel message:
-        connect
-    More description:
-
-    Parameters:
-        server_sock: socket
-    Returns list of dictionaries - generated proxy reports or assert
-    exception if communication with minipot went wrong. """
-    response = recv_from_sock(server_sock)
-    assert response[:len(MINIPOT_WELCOME_RESP)] == MINIPOT_WELCOME_RESP
-    cmd = gen_rand_delim(randint(1, 100)) + gen_cmd(ETRN)
-    server_sock.sendall(cmd)
-    response = recv_from_sock(server_sock)
-    assert response == MINIPOT_ETRN_EXPECT_HELO_RESP
-    return [gen_connect_report(server_sock)]
-
-
-def etrn_cmd_expect_helo_test3(server_sock):
-    """ Sends to Minipots:
-        etrn command with one random byte as a parameter
-    Required response from Minipots':
-        MINIPOT_WELCOME_RESP
-        MINIPOT_ETRN_EXPECT_HELO_RESP
-    Required Minipots generated Sentinel message:
-        connect
-    More description:
-
-    Parameters:
-        server_sock: socket
-    Returns list of dictionaries - generated proxy reports or assert
-    exception if communication with minipot went wrong. """
-    response = recv_from_sock(server_sock)
-    assert response[:len(MINIPOT_WELCOME_RESP)] == MINIPOT_WELCOME_RESP
-    cmd = gen_cmd(ETRN, [gen_rand_param(1)])
+    cmd = gen_cmd(ETRN)
     server_sock.sendall(cmd)
     response = recv_from_sock(server_sock)
     assert response == MINIPOT_ETRN_EXPECT_HELO_RESP
@@ -933,52 +614,7 @@ def rcpt_cmd_ecpect_helo_test1(server_sock):
     exception if communication with minipot went wrong. """
     response = recv_from_sock(server_sock)
     assert response[:len(MINIPOT_WELCOME_RESP)] == MINIPOT_WELCOME_RESP
-    server_sock.sendall(RCPT + LF)
-    response = recv_from_sock(server_sock)
-    assert response == MINIPOT_RCPT_503_RESP
-    return [gen_connect_report(server_sock)]
-
-
-def rcpt_cmd_expect_helo_test2(server_sock):
-    """ Sends to Minipots:
-        rcpt with MINIPOT_TOKEN_SEPARATORS before and after
-    Required response from Minipots':
-        MINIPOT_WELCOME_RESP
-        MINIPOT_RCPT_503_RESP
-    Required Minipots generated Sentinel message:
-        connect
-    More description:
-
-    Parameters:
-        server_sock: socket
-    Returns list of dictionaries - generated proxy reports or assert
-    exception if communication with minipot went wrong. """
-    response = recv_from_sock(server_sock)
-    assert response[:len(MINIPOT_WELCOME_RESP)] == MINIPOT_WELCOME_RESP
-    cmd = gen_rand_delim(randint(1, 100)) + gen_cmd(RCPT)
-    server_sock.sendall(cmd)
-    response = recv_from_sock(server_sock)
-    assert response == MINIPOT_RCPT_503_RESP
-    return [gen_connect_report(server_sock)]
-
-
-def rcpt_cmd_expect_helo_test3(server_sock):
-    """ Sends to Minipots:
-        rcpt command with one random byte as a parameter
-    Required response from Minipots':
-        MINIPOT_WELCOME_RESP
-        MINIPOT_RCPT_503_RESP
-    Required Minipots generated Sentinel message:
-        connect
-    More description:
-
-    Parameters:
-        server_sock: socket
-    Returns list of dictionaries - generated proxy reports or assert
-    exception if communication with minipot went wrong. """
-    response = recv_from_sock(server_sock)
-    assert response[:len(MINIPOT_WELCOME_RESP)] == MINIPOT_WELCOME_RESP
-    cmd = gen_cmd(RCPT, [gen_rand_param(1)])
+    cmd = gen_cmd(RCPT)
     server_sock.sendall(cmd)
     response = recv_from_sock(server_sock)
     assert response == MINIPOT_RCPT_503_RESP
@@ -1028,52 +664,7 @@ def data_cmd_ecpect_helo_test1(server_sock):
     exception if communication with minipot went wrong. """
     response = recv_from_sock(server_sock)
     assert response[:len(MINIPOT_WELCOME_RESP)] == MINIPOT_WELCOME_RESP
-    server_sock.sendall(DATA + LF)
-    response = recv_from_sock(server_sock)
-    assert response == MINIPOT_DATA_503_RESP
-    return [gen_connect_report(server_sock)]
-
-
-def data_cmd_expect_helo_test2(server_sock):
-    """ Sends to Minipots:
-        data command with MINIPOT_TOKEN_SEPARATORS before and after
-    Required response from Minipots':
-        MINIPOT_WELCOME_RESP
-        MINIPOT_DATA_503_RESP
-    Required Minipots generated Sentinel message:
-        connect
-    More description:
-
-    Parameters:
-        server_sock: socket
-    Returns list of dictionaries - generated proxy reports or assert
-    exception if communication with minipot went wrong. """
-    response = recv_from_sock(server_sock)
-    assert response[:len(MINIPOT_WELCOME_RESP)] == MINIPOT_WELCOME_RESP
-    cmd = gen_rand_delim(randint(1, 100)) + gen_cmd(DATA)
-    server_sock.sendall(cmd)
-    response = recv_from_sock(server_sock)
-    assert response == MINIPOT_DATA_503_RESP
-    return [gen_connect_report(server_sock)]
-
-
-def data_cmd_expect_helo_test3(server_sock):
-    """ Sends to Minipots:
-        data command with one random byte as a parameter
-    Required response from Minipots':
-        MINIPOT_WELCOME_RESP
-        MINIPOT_DATA_503_RESP
-    Required Minipots generated Sentinel message:
-        connect
-    More description:
-
-    Parameters:
-        server_sock: socket
-    Returns list of dictionaries - generated proxy reports or assert
-    exception if communication with minipot went wrong. """
-    response = recv_from_sock(server_sock)
-    assert response[:len(MINIPOT_WELCOME_RESP)] == MINIPOT_WELCOME_RESP
-    cmd = gen_cmd(DATA, [gen_rand_param(1)])
+    cmd = gen_cmd(DATA)
     server_sock.sendall(cmd)
     response = recv_from_sock(server_sock)
     assert response == MINIPOT_DATA_503_RESP
@@ -1123,55 +714,10 @@ def helo_cmd_ecpect_helo_test1(server_sock):
     exception if communication with minipot went wrong. """
     response = recv_from_sock(server_sock)
     assert response[:len(MINIPOT_WELCOME_RESP)] == MINIPOT_WELCOME_RESP
-    server_sock.sendall(HELO + LF)
-    response = recv_from_sock(server_sock)
-    assert response == MINIPOT_HELO_501_RESP
-    return [gen_connect_report(server_sock)]
-
-
-def helo_cmd_expect_helo_test2(server_sock):
-    """ Sends to Minipots:
-        helo command with MINIPOT_TOKEN_SEPARATORS before and after
-    Required response from Minipots':
-        MINIPOT_WELCOME_RESP
-        MINIPOT_HELO_501_RESP
-    Required Minipots generated Sentinel message:
-        connect
-    More description:
-
-    Parameters:
-        server_sock: socket
-    Returns list of dictionaries - generated proxy reports or assert
-    exception if communication with minipot went wrong. """
-    response = recv_from_sock(server_sock)
-    assert response[:len(MINIPOT_WELCOME_RESP)] == MINIPOT_WELCOME_RESP
-    cmd = gen_rand_delim(randint(1, 100)) + gen_cmd(HELO)
+    cmd = gen_cmd(HELO)
     server_sock.sendall(cmd)
     response = recv_from_sock(server_sock)
     assert response == MINIPOT_HELO_501_RESP
-    return [gen_connect_report(server_sock)]
-
-
-def helo_cmd_expect_helo_test3(server_sock):
-    """ Sends to Minipots:
-        heloc command with one random byte as a parameter
-    Required response from Minipots':
-        MINIPOT_WELCOME_RESP
-        MINIPOT_HELO_250_RESP
-    Required Minipots generated Sentinel message:
-        connect
-    More description:
-
-    Parameters:
-        server_sock: socket
-    Returns list of dictionaries - generated proxy reports or assert
-    exception if communication with minipot went wrong. """
-    response = recv_from_sock(server_sock)
-    assert response[:len(MINIPOT_WELCOME_RESP)] == MINIPOT_WELCOME_RESP
-    cmd = gen_cmd(HELO, [gen_rand_param(1)])
-    server_sock.sendall(cmd)
-    response = recv_from_sock(server_sock)
-    assert response[:len(MINIPOT_HELO_250_RESP)] == MINIPOT_HELO_250_RESP
     return [gen_connect_report(server_sock)]
 
 
@@ -1218,55 +764,10 @@ def ehlo_cmd_ecpect_helo_test1(server_sock):
     exception if communication with minipot went wrong. """
     response = recv_from_sock(server_sock)
     assert response[:len(MINIPOT_WELCOME_RESP)] == MINIPOT_WELCOME_RESP
-    server_sock.sendall(EHLO + LF)
-    response = recv_from_sock(server_sock)
-    assert response == MINIPOT_EHLO_501_RESP
-    return [gen_connect_report(server_sock)]
-
-
-def ehlo_cmd_expect_helo_test2(server_sock):
-    """ Sends to Minipots:
-        ehlo command with MINIPOT_TOKEN_SEPARATORS before and after
-    Required response from Minipots':
-        MINIPOT_WELCOME_RESP
-        MINIPOT_EHLO_501_RESP
-    Required Minipots generated Sentinel message:
-        connect
-    More description:
-
-    Parameters:
-        server_sock: socket
-    Returns list of dictionaries - generated proxy reports or assert
-    exception if communication with minipot went wrong. """
-    response = recv_from_sock(server_sock)
-    assert response[:len(MINIPOT_WELCOME_RESP)] == MINIPOT_WELCOME_RESP
-    cmd = gen_rand_delim(randint(1, 100)) + gen_cmd(EHLO)
+    cmd = gen_cmd(EHLO)
     server_sock.sendall(cmd)
     response = recv_from_sock(server_sock)
     assert response == MINIPOT_EHLO_501_RESP
-    return [gen_connect_report(server_sock)]
-
-
-def ehlo_cmd_expect_helo_test3(server_sock):
-    """ Sends to Minipots:
-        ehlo command with one random byte as a parameter
-    Required response from Minipots':
-        MINIPOT_WELCOME_RESP
-        MINIPOT_EHLO_250_RESP
-    Required Minipots generated Sentinel message:
-        connect
-    More description:
-
-    Parameters:
-        server_sock: socket
-    Returns list of dictionaries - generated proxy reports or assert
-    exception if communication with minipot went wrong. """
-    response = recv_from_sock(server_sock)
-    assert response[:len(MINIPOT_WELCOME_RESP)] == MINIPOT_WELCOME_RESP
-    cmd = gen_cmd(EHLO, [gen_rand_param(1)])
-    server_sock.sendall(cmd)
-    response = recv_from_sock(server_sock)
-    assert response[:len(MINIPOT_EHLO_250_RESP)] == MINIPOT_EHLO_250_RESP
     return [gen_connect_report(server_sock)]
 
 
@@ -1322,7 +823,8 @@ def etrn_cmd_helo_sent_test1(server_sock):
     server_sock.sendall(EHLO_CMD)
     response = recv_from_sock(server_sock)
     assert response[:len(MINIPOT_EHLO_250_RESP)] == MINIPOT_EHLO_250_RESP
-    server_sock.sendall(ETRN + LF)
+    cmd = gen_cmd(ETRN)
+    server_sock.sendall(cmd)
     response = recv_from_sock(server_sock)
     assert response == MINIPOT_ETRN_HELO_500_RESP
     return [gen_connect_report(server_sock)]
@@ -1409,7 +911,8 @@ def mail_cmd_helo_sent_test1(server_sock):
     server_sock.sendall(EHLO_CMD)
     response = recv_from_sock(server_sock)
     assert response[:len(MINIPOT_EHLO_250_RESP)] == MINIPOT_EHLO_250_RESP
-    server_sock.sendall(MAIL + LF)
+    cmd = gen_cmd(MAIL)
+    server_sock.sendall(cmd)
     response = recv_from_sock(server_sock)
     assert response == MINIPOT_MAIL_501_RESP
     return [gen_connect_report(server_sock)]
@@ -1611,7 +1114,8 @@ def noop_cmd_helo_sent_test1(server_sock):
     server_sock.sendall(EHLO_CMD)
     response = recv_from_sock(server_sock)
     assert response[:len(MINIPOT_EHLO_250_RESP)] == MINIPOT_EHLO_250_RESP
-    server_sock.sendall(NOOP + LF)
+    cmd = gen_cmd(NOOP)
+    server_sock.sendall(cmd)
     response = recv_from_sock(server_sock)
     assert response == MINIPOT_OK_RESP
     return [gen_connect_report(server_sock)]
@@ -1670,7 +1174,8 @@ def vrfy_cmd_helo_sent_test1(server_sock):
     server_sock.sendall(EHLO_CMD)
     response = recv_from_sock(server_sock)
     assert response[:len(MINIPOT_EHLO_250_RESP)] == MINIPOT_EHLO_250_RESP
-    server_sock.sendall(VRFY + LF)
+    cmd = gen_cmd(VRFY)
+    server_sock.sendall(cmd)
     response = recv_from_sock(server_sock)
     assert response == MINIPOT_VRFY_RESP
     return [gen_connect_report(server_sock)]
@@ -1729,7 +1234,8 @@ def quit_cmd_helo_sent_test1(server_sock):
     server_sock.sendall(EHLO_CMD)
     response = recv_from_sock(server_sock)
     assert response[:len(MINIPOT_EHLO_250_RESP)] == MINIPOT_EHLO_250_RESP
-    server_sock.sendall(QUIT + LF)
+    cmd = gen_cmd(QUIT)
+    server_sock.sendall(cmd)
     response = recv_from_sock(server_sock)
     assert response == MINIPOT_QUIT_RESP
     return [gen_connect_report(server_sock)]
@@ -1788,33 +1294,6 @@ def auth_cmd_helo_sent_no_sasl_test1(server_sock):
     server_sock.sendall(EHLO_CMD)
     response = recv_from_sock(server_sock)
     assert response[:len(MINIPOT_EHLO_250_RESP)] == MINIPOT_EHLO_250_RESP
-    server_sock.sendall(AUTH + LF)
-    response = recv_from_sock(server_sock)
-    assert response == MINIPOT_AUTH_501_RESP
-    return [gen_connect_report(server_sock)]
-
-
-def auth_cmd_helo_sent_no_sasl_test2(server_sock):
-    """ Sends to Minipots:
-        ehlo command with one random byte as a parameter
-        auth command with MINIPOT_TOKEN_SEPARATORS before and after
-    Required response from Minipots':
-        MINIPOT_WELCOME_RESP
-        MINIPOT_EHLO_250_RESP
-        MINIPOT_AUTH_501_RESP
-    Required Minipots generated Sentinel message:
-        connect
-    More description:
-
-    Parameters:
-        server_sock: socket
-    Returns list of dictionaries - generated proxy reports or assert
-    exception if communication with minipot went wrong. """
-    response = recv_from_sock(server_sock)
-    assert response[:len(MINIPOT_WELCOME_RESP)] == MINIPOT_WELCOME_RESP
-    server_sock.sendall(EHLO_CMD)
-    response = recv_from_sock(server_sock)
-    assert response[:len(MINIPOT_EHLO_250_RESP)] == MINIPOT_EHLO_250_RESP
     cmd = gen_cmd(AUTH)
     server_sock.sendall(cmd)
     response = recv_from_sock(server_sock)
@@ -1843,36 +1322,7 @@ def auth_cmd_helo_sent_sasl_test1(server_sock):
     server_sock.sendall(EHLO_CMD)
     response = recv_from_sock(server_sock)
     assert response[:len(MINIPOT_EHLO_250_RESP)] == MINIPOT_EHLO_250_RESP
-    cmd = AUTH + gen_rand_delim(5) + PLAIN + LF
-    server_sock.sendall(cmd)
-    response = recv_from_sock(server_sock)
-    assert response == MINIPOT_AUTH_PLAIN_ASK_DATA_RESP
-    return [gen_connect_report(server_sock)]
-
-
-def auth_cmd_helo_sent_sasl_test2(server_sock):
-    """ Sends to Minipots:
-        ehlo command with one random byte as a parameter
-        auth plain command and a few MINIPOT_TOKEN_SEPARATORS
-    Required response from Minipots':
-        MINIPOT_WELCOME_RESP
-        MINIPOT_EHLO_250_RESP
-        MINIPOT_AUTH_PLAIN_ASK_DATA_RESP
-    Required Minipots generated Sentinel message:
-        connect
-    More description:
-
-    Parameters:
-        server_sock: socket
-    Returns list of dictionaries - generated proxy reports or assert
-    exception if communication with minipot went wrong. """
-    response = recv_from_sock(server_sock)
-    assert response[:len(MINIPOT_WELCOME_RESP)] == MINIPOT_WELCOME_RESP
-    server_sock.sendall(EHLO_CMD)
-    response = recv_from_sock(server_sock)
-    assert response[:len(MINIPOT_EHLO_250_RESP)] == MINIPOT_EHLO_250_RESP
-    cmd = gen_cmd(AUTH, [PLAIN])
-    server_sock.sendall(cmd)
+    server_sock.sendall(AUTH_PL_CMD)
     response = recv_from_sock(server_sock)
     assert response == MINIPOT_AUTH_PLAIN_ASK_DATA_RESP
     return [gen_connect_report(server_sock)]
@@ -1899,36 +1349,7 @@ def auth_cmd_helo_sent_sasl_test3(server_sock):
     server_sock.sendall(EHLO_CMD)
     response = recv_from_sock(server_sock)
     assert response[:len(MINIPOT_EHLO_250_RESP)] == MINIPOT_EHLO_250_RESP
-    cmd = AUTH + gen_rand_delim(6) + LOGIN + LF
-    server_sock.sendall(cmd)
-    response = recv_from_sock(server_sock)
-    assert response == MINIPOT_AUTH_LOG_ASK_USER_RESP
-    return [gen_connect_report(server_sock)]
-
-
-def auth_cmd_helo_sent_sasl_test4(server_sock):
-    """ Sends to Minipots:
-        ehlo command with one random byte as a parameter
-        auth login command and a few MINIPOT_TOKEN_SEPARATORS
-    Required response from Minipots':
-        MINIPOT_WELCOME_RESP
-        MINIPOT_EHLO_250_RESP
-        MINIPOT_AUTH_LOG_ASK_USER_RESP
-    Required Minipots generated Sentinel message:
-        connect
-    More description:
-
-    Parameters:
-        server_sock: socket
-    Returns list of dictionaries - generated proxy reports or assert
-    exception if communication with minipot went wrong. """
-    response = recv_from_sock(server_sock)
-    assert response[:len(MINIPOT_WELCOME_RESP)] == MINIPOT_WELCOME_RESP
-    server_sock.sendall(EHLO_CMD)
-    response = recv_from_sock(server_sock)
-    assert response[:len(MINIPOT_EHLO_250_RESP)] == MINIPOT_EHLO_250_RESP
-    cmd = gen_cmd(AUTH, [LOGIN])
-    server_sock.sendall(cmd)
+    server_sock.sendall(AUTH_LOG_CMD)
     response = recv_from_sock(server_sock)
     assert response == MINIPOT_AUTH_LOG_ASK_USER_RESP
     return [gen_connect_report(server_sock)]
@@ -1956,37 +1377,7 @@ def auth_cmd_helo_sent_sasl_test5(server_sock):
     server_sock.sendall(EHLO_CMD)
     response = recv_from_sock(server_sock)
     assert response[:len(MINIPOT_EHLO_250_RESP)] == MINIPOT_EHLO_250_RESP
-    cmd = AUTH + gen_rand_delim(5) + b"asdasds" + LF
-    server_sock.sendall(cmd)
-    response = recv_from_sock(server_sock)
-    assert response == MINIPOT_AUTH_INVLD_SASL_MECH
-    return [gen_connect_report(server_sock), gen_invalid_report(server_sock)]
-
-
-def auth_cmd_helo_sent_sasl_test6(server_sock):
-    """ Sends to Minipots:
-        ehlo command with one random byte as a parameter
-        auth command with random bytes as sasl mechanism and few
-        MINIPOT_TOKEN_SEPARATORS
-    Required response from Minipots':
-        MINIPOT_WELCOME_RESP
-        MINIPOT_EHLO_250_RESP
-        MINIPOT_AUTH_INVLD_SASL_MECH
-    Required Minipots generated Sentinel message:
-        connect
-        invalid
-    More description:
-
-    Parameters:
-        server_sock: socket
-    Returns list of dictionaries - generated proxy reports or assert
-    exception if communication with minipot went wrong. """
-    response = recv_from_sock(server_sock)
-    assert response[:len(MINIPOT_WELCOME_RESP)] == MINIPOT_WELCOME_RESP
-    server_sock.sendall(EHLO_CMD)
-    response = recv_from_sock(server_sock)
-    assert response[:len(MINIPOT_EHLO_250_RESP)] == MINIPOT_EHLO_250_RESP
-    cmd = gen_cmd(AUTH, [b"asasa"])
+    cmd = gen_cmd(AUTH, [b"asdasds"])
     server_sock.sendall(cmd)
     response = recv_from_sock(server_sock)
     assert response == MINIPOT_AUTH_INVLD_SASL_MECH
@@ -2017,38 +1408,6 @@ def auth_cmd_helo_sent_init_resp_test1(server_sock):
     response = recv_from_sock(server_sock)
     assert response[:len(MINIPOT_EHLO_250_RESP)] == MINIPOT_EHLO_250_RESP
     plain_data = gen_rand_bytes_w0(randint(1, 10000))
-    cmd = b"".join([AUTH, gen_rand_delim(4), PLAIN, gen_rand_delim(5),
-                    standard_b64encode(plain_data), LF])
-    server_sock.sendall(cmd)
-    response = recv_from_sock(server_sock)
-    assert response == MINIPOT_AUTH_PLAIN_INIT_RESP_RESP
-    return [gen_connect_report(server_sock), gen_invalid_report(server_sock)]
-
-
-def auth_cmd_helo_sent_init_resp_test2(server_sock):
-    """ Sends to Minipots:
-        ehlo command with one random byte as a parameter
-        auth plain command with valid base64 encoded data and few MINIPOT_TOKEN_SEPARATORS
-        data containing no null bytes
-    Required response from Minipots':
-        MINIPOT_WELCOME_RESP
-        MINIPOT_EHLO_250_RESP
-        MINIPOT_AUTH_PLAIN_INIT_RESP_RESP
-    Required Minipots generated Sentinel message:
-        connect
-        invalid
-    More description:
-
-    Parameters:
-        server_sock: socket
-    Returns list of dictionaries - generated proxy reports or assert
-    exception if communication with minipot went wrong. """
-    response = recv_from_sock(server_sock)
-    assert response[:len(MINIPOT_WELCOME_RESP)] == MINIPOT_WELCOME_RESP
-    server_sock.sendall(EHLO_CMD)
-    response = recv_from_sock(server_sock)
-    assert response[:len(MINIPOT_EHLO_250_RESP)] == MINIPOT_EHLO_250_RESP
-    plain_data = gen_rand_bytes_w0(randint(1, 10000))
     cmd = gen_cmd(AUTH, [PLAIN, standard_b64encode(plain_data)])
     server_sock.sendall(cmd)
     response = recv_from_sock(server_sock)
@@ -2056,39 +1415,10 @@ def auth_cmd_helo_sent_init_resp_test2(server_sock):
     return [gen_connect_report(server_sock), gen_invalid_report(server_sock)]
 
 
-def auth_cmd_helo_sent_init_resp_test3(server_sock):
-    """ Sends to Minipots:
-        ehlo command with one random byte as a parameter
-        auth plain command and a few invalid base64 bytes
-    Required response from Minipots':
-        MINIPOT_WELCOME_RESP
-        MINIPOT_EHLO_250_RESP
-        MINIPOT_AUTH_INIT_RESP_ERROR
-    Required Minipots generated Sentinel message:
-        connect
-        invalid
-    More description:
-
-    Parameters:
-        server_sock: socket
-    Returns list of dictionaries - generated proxy reports or assert
-    exception if communication with minipot went wrong. """
-    response = recv_from_sock(server_sock)
-    assert response[:len(MINIPOT_WELCOME_RESP)] == MINIPOT_WELCOME_RESP
-    server_sock.sendall(EHLO_CMD)
-    response = recv_from_sock(server_sock)
-    assert response[:len(MINIPOT_EHLO_250_RESP)] == MINIPOT_EHLO_250_RESP
-    cmd = AUTH + gen_rand_delim(5) + PLAIN + gen_rand_delim(5) + b"@@@@" + LF
-    server_sock.sendall(cmd)
-    response = recv_from_sock(server_sock)
-    assert response == MINIPOT_AUTH_INIT_RESP_ERROR
-    return [gen_connect_report(server_sock), gen_invalid_report(server_sock)]
-
-
 def auth_cmd_helo_sent_init_resp_test4(server_sock):
     """ Sends to Minipots:
         ehlo command with one random byte as a parameter
-        auth plain command with invalid base64 data a few MINIPOT_TOKEN_SEPARATORS
+        auth plain command with invalid base64 data
     Required response from Minipots':
         MINIPOT_WELCOME_RESP
         MINIPOT_EHLO_250_RESP
@@ -2114,41 +1444,10 @@ def auth_cmd_helo_sent_init_resp_test4(server_sock):
     return [gen_connect_report(server_sock), gen_invalid_report(server_sock)]
 
 
-def auth_cmd_helo_sent_init_resp_test5(server_sock):
-    """ Sends to Minipots:
-        ehlo command with one random byte as a parameter
-        auth login command with valid base64 encoded username
-    Required response from Minipots':
-        MINIPOT_WELCOME_RESP
-        MINIPOT_EHLO_250_RESP
-        MINIPOT_AUTH_LOG_ASK_FOR_PASSW
-    Required Minipots generated Sentinel message:
-        connect
-    More description:
-
-    Parameters:
-        server_sock: socket
-    Returns list of dictionaries - generated proxy reports or assert
-    exception if communication with minipot went wrong. """
-    response = recv_from_sock(server_sock)
-    assert response[:len(MINIPOT_WELCOME_RESP)] == MINIPOT_WELCOME_RESP
-    server_sock.sendall(EHLO_CMD)
-    response = recv_from_sock(server_sock)
-    assert response[:len(MINIPOT_EHLO_250_RESP)] == MINIPOT_EHLO_250_RESP
-    user = gen_rand_bytes(randint(1, 1000))
-    cmd = b"".join([AUTH, gen_rand_delim(5), LOGIN, gen_rand_delim(7),
-                    standard_b64encode(user), LF])
-    server_sock.sendall(cmd)
-    response = recv_from_sock(server_sock)
-    assert response == MINIPOT_AUTH_LOG_ASK_FOR_PASSW
-    return [gen_connect_report(server_sock)]
-
-
 def auth_cmd_helo_sent_init_resp_test6(server_sock):
     """ Sends to Minipots:
         ehlo command with one random byte as a parameter
         auth login command with valid base64 encoded username
-        and a few MINIPOT_TOKEN_SEPARATORS
     Required response from Minipots':
         MINIPOT_WELCOME_RESP
         MINIPOT_EHLO_250_RESP
@@ -2174,40 +1473,10 @@ def auth_cmd_helo_sent_init_resp_test6(server_sock):
     return [gen_connect_report(server_sock)]
 
 
-def auth_cmd_helo_sent_init_resp_test7(server_sock):
-    """ Sends to Minipots:
-        ehlo command with one random byte as a parameter
-        auth login command and invalid base64 data
-    Required response from Minipots':
-        MINIPOT_WELCOME_RESP
-        MINIPOT_EHLO_250_RESP
-        MINIPOT_AUTH_INIT_RESP_ERROR
-    Required Minipots generated Sentinel message:
-        connect
-        invalid
-    More description:
-
-    Parameters:
-        server_sock: socket
-    Returns list of dictionaries - generated proxy reports or assert
-    exception if communication with minipot went wrong. """
-    response = recv_from_sock(server_sock)
-    assert response[:len(MINIPOT_WELCOME_RESP)] == MINIPOT_WELCOME_RESP
-    server_sock.sendall(EHLO_CMD)
-    response = recv_from_sock(server_sock)
-    assert response[:len(MINIPOT_EHLO_250_RESP)] == MINIPOT_EHLO_250_RESP
-    cmd = AUTH + gen_rand_delim(5) + LOGIN + gen_rand_delim(6) + b"@@@" + LF
-    server_sock.sendall(cmd)
-    response = recv_from_sock(server_sock)
-    assert response == MINIPOT_AUTH_INIT_RESP_ERROR
-    return [gen_connect_report(server_sock), gen_invalid_report(server_sock)]
-
-
 def auth_cmd_helo_sent_init_resp_test8(server_sock):
     """ Sends to Minipots:
         ehlo command with one random byte as a parameter
         auth login command with invalid base64 data
-        and a few MINIPOT_TOKEN_SEPARATORS
     Required response from Minipots':
         MINIPOT_WELCOME_RESP
         MINIPOT_EHLO_250_RESP
@@ -4538,7 +3807,8 @@ def etrn_cmd_helo_mail_sent_test1(server_sock):
     server_sock.sendall(MAIL_CMD)
     response = recv_from_sock(server_sock)
     assert response == MINIPOT_OK_RESP
-    server_sock.sendall(ETRN + LF)
+    cmd = gen_cmd(ETRN)
+    server_sock.sendall(cmd)
     response = recv_from_sock(server_sock)
     assert response == MINIPOT_ETRN_HELO_MAIL_RESP
     return [gen_connect_report(server_sock)]
@@ -4607,7 +3877,8 @@ def mail_cmd_helo_mail_sent_test1(server_sock):
     server_sock.sendall(MAIL_CMD)
     response = recv_from_sock(server_sock)
     assert response == MINIPOT_OK_RESP
-    server_sock.sendall(MAIL + LF)
+    cmd = gen_cmd(MAIL)
+    server_sock.sendall(cmd)
     response = recv_from_sock(server_sock)
     assert response == MINIPOT_MAIL_HELO_MAIL_RESP
     return [gen_connect_report(server_sock)]
@@ -4677,7 +3948,8 @@ def data_cmd_helo_mail_sent_test1(server_sock):
     server_sock.sendall(MAIL_CMD)
     response = recv_from_sock(server_sock)
     assert response == MINIPOT_OK_RESP
-    server_sock.sendall(DATA + LF)
+    cmd = gen_cmd(DATA)
+    server_sock.sendall(cmd)
     response = recv_from_sock(server_sock)
     assert response == MINIPOT_DATA_554_RESP
     return [gen_connect_report(server_sock)]
@@ -4746,7 +4018,8 @@ def auth_cmd_helo_mail_sent_test1(server_sock):
     server_sock.sendall(MAIL_CMD)
     response = recv_from_sock(server_sock)
     assert response == MINIPOT_OK_RESP
-    server_sock.sendall(AUTH + LF)
+    cmd = gen_cmd(AUTH)
+    server_sock.sendall(cmd)
     response = recv_from_sock(server_sock)
     assert response == MINIPOT_MINIPOT_MAIL_501_RESP
     return [gen_connect_report(server_sock)]
@@ -4815,7 +4088,8 @@ def rcpt_cmd_helo_mail_sent_test1(server_sock):
     server_sock.sendall(MAIL_CMD)
     response = recv_from_sock(server_sock)
     assert response == MINIPOT_OK_RESP
-    server_sock.sendall(RCPT + LF)
+    cmd = gen_cmd(RCPT)
+    server_sock.sendall(cmd)
     response = recv_from_sock(server_sock)
     assert response == MINIPOT_RCPT_501_RESP
     return [gen_connect_report(server_sock)]
@@ -4913,7 +4187,7 @@ def rcpt_cmd_helo_mail_sent_test4(server_sock):
     server_sock.sendall(MAIL_CMD)
     response = recv_from_sock(server_sock)
     assert response == MINIPOT_OK_RESP
-    cmd = RCPT + gen_rand_delim(5) + TO + LF
+    cmd = gen_cmd(RCPT, [TO])
     server_sock.sendall(cmd)
     response = recv_from_sock(server_sock)
     assert response == MINIPOT_RCPT_501_RESP
@@ -4946,7 +4220,7 @@ def rcpt_cmd_helo_mail_sent_test5(server_sock):
     server_sock.sendall(MAIL_CMD)
     response = recv_from_sock(server_sock)
     assert response == MINIPOT_OK_RESP
-    cmd = RCPT + gen_rand_delim(5) + TO + gen_rand_param(randint(1, 1000)) + LF
+    cmd = gen_cmd(RCPT, [TO + gen_rand_param(randint(1, 1000))])
     server_sock.sendall(cmd)
     response = recv_from_sock(server_sock)
     assert response == b"".join([MINIPOT_RCPT_554_RESP_PART1,
@@ -4981,8 +4255,7 @@ def rcpt_cmd_helo_mail_sent_test6(server_sock):
     server_sock.sendall(MAIL_CMD)
     response = recv_from_sock(server_sock)
     assert response == MINIPOT_OK_RESP
-    cmd = b"".join([RCPT, gen_rand_delim(6), TO, gen_rand_delim(5),
-                    gen_rand_delim(5), gen_rand_param(randint(1, 100)), LF])
+    cmd = gen_cmd(RCPT, [TO, gen_rand_param(randint(1, 100))])
     server_sock.sendall(cmd)
     response = recv_from_sock(server_sock)
     assert response == b"".join([MINIPOT_RCPT_554_RESP_PART1,
