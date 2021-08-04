@@ -17,14 +17,15 @@
  */
 
 #include <unistd.h>
-#include <errno.h>
-#include <msgpack.h>
 
-#include "minipot_pipe.h"
 #include "utils.h"
+#include "minipot_pipe.h"
 
-static int write_all(int fd, const void *data, size_t len) {
+int write_all(int fd, const void *data, size_t len) {
 	TRACE_FUNC_FD(fd);
+	assert(fd >= 0);
+	if (len > 0)
+		assert(data);
 	while (len > 0) {
 		ssize_t sent = write(fd, data, len);
 		if (sent == -1) {
@@ -39,98 +40,97 @@ static int write_all(int fd, const void *data, size_t len) {
 	return 0;
 }
 
+int send_to_master(int fd, const void *data, size_t len) {
+	TRACE_FUNC_FD(fd);
+	assert(fd >= 0);
+	if (len > 0)
+		assert(data);
+	// first send data length
+	if (write_all(fd, &len, sizeof(len)))
+		return -1;
+	return write_all(fd, data, len);
+}
+
+int check_sentinel_msg(const struct sentinel_msg *msg) {
+	TRACE_FUNC;
+	assert(msg);
+	if (msg->ts <= 0) {
+		error("Proxy message has invalid time stamp field");
+		return -1;
+	}
+	if (!msg->type || strlen(msg->type) == 0) {
+		error("Proxy message has invalid type field");
+		return -1;
+	}
+	if (!msg->ip || strlen(msg->ip) == 0) {
+		error("Proxy message has invalid ip field");
+		return -1;
+	}
+	if (!msg->action || strlen(msg->action) == 0) {
+		error("Proxy message has invalid action field");
+		return -1;
+	}
+	if (msg->data_len > 0) {
+		if (!msg->data) {
+			error("Proxy message has invalid action field");
+			return -1;
+		}
+		for (size_t i = 0; i < msg->data_len; i++) {
+			// key must have length at least 1
+			if (!msg->data[i].key || msg->data[i].key_len < 1) {
+				error("Key of proxy message data field is invalid");
+				return -1;
+			}
+			// value can have zero length
+			if (msg->data[i].val_len > 0 && !msg->data[i].val) {
+				error("Value of proxy message data field is invalid");
+				return -1;
+			}
+		}
+	}
+	return 0;
+} 
+
 #define PACK_STR(packer, str) do { \
 	msgpack_pack_str(packer, strlen(str));\
 	msgpack_pack_str_body(packer, str, strlen(str)); \
 	} while(0);
 
-#define DES_AND_RET(sbuf) do { \
-	msgpack_sbuffer_destroy(sbuf); \
-	return -1; \
-	} while (0)
-
-int proxy_report(int pipe_fd, struct proxy_msg *proxy_msg) {
-	TRACE_FUNC_FD(pipe_fd);
-	if (!proxy_msg || pipe_fd < 0) {
-		error("Invalid arguments passed to proxy_report");
+int pack_sentinel_msg(msgpack_sbuffer *sbuff, msgpack_sbuffer *sbuff_data,
+		const struct sentinel_msg *msg) {
+	TRACE_FUNC;
+	assert(sbuff);
+	assert(sbuff_data);
+	assert(msg);
+	if (check_sentinel_msg(msg))
 		return -1;
-	}
-	msgpack_sbuffer sbuf;
-	msgpack_packer pk;
-	msgpack_sbuffer_init(&sbuf);
-	msgpack_packer_init(&pk, &sbuf, msgpack_sbuffer_write);
-	// ts, type, action, ip are mandatory
-	// data are optional
-	size_t map_size = (proxy_msg->data_len > 0) ? 5 : 4;
-	msgpack_pack_map(&pk, map_size);
-	if (proxy_msg->ts) {
-		PACK_STR(&pk, "ts");
-		msgpack_pack_long_long(&pk, proxy_msg->ts);
-	} else {
-		error("Proxy message has invalid time stamp field");
-		DES_AND_RET(&sbuf);
-	}
-	if (proxy_msg->type) {
-		PACK_STR(&pk, "type");
-		PACK_STR(&pk, proxy_msg->type);
-	} else {
-		error("Proxy message has invalid type field");
-		DES_AND_RET(&sbuf);
-	}
-	if (proxy_msg->ip) {
-		PACK_STR(&pk, "ip");
-		PACK_STR(&pk, proxy_msg->ip);
-	} else {
-		error("Proxy message has invalid ip field");
-		DES_AND_RET(&sbuf);
-	}
-	if (proxy_msg->action) {
-		PACK_STR(&pk, "action");
-		PACK_STR(&pk, proxy_msg->action);
-	} else {
-		error("Proxy message has invalid action field");
-		DES_AND_RET(&sbuf);
-	}
-	if (proxy_msg->data_len > 0) {
-		if (proxy_msg->data == NULL) {
-			error("Proxy message has invalid data field");
-			DES_AND_RET(&sbuf);
-		}
-		msgpack_sbuffer data_sbuf;
-		msgpack_packer data_pk;
-		msgpack_sbuffer_init(&data_sbuf);
-		msgpack_packer_init(&data_pk, &data_sbuf, msgpack_sbuffer_write);
-		msgpack_pack_map(&data_pk, proxy_msg->data_len);
 
-		for (size_t i = 0; i < proxy_msg->data_len; i++) {
-				// key must have length at least 1
-				if (proxy_msg->data[i].key_len < 1 || proxy_msg->data[i].key == NULL) {
-					error("Key of proxy message data field is invalid");
-					DES_AND_RET(&data_sbuf);
-					DES_AND_RET(&sbuf);
-				}
-				msgpack_pack_str(&data_pk, proxy_msg->data[i].key_len);
-				msgpack_pack_str_body(&data_pk, proxy_msg->data[i].key, proxy_msg->data[i].key_len);
-				// value can have zero length
-				if (proxy_msg->data[i].val_len > 0 && proxy_msg->data[i].val == NULL) {
-					error("Data of proxy message data field is invalid");
-					DES_AND_RET(&data_sbuf);
-					DES_AND_RET(&sbuf);
-				}
-				msgpack_pack_str(&data_pk, proxy_msg->data[i].val_len);
-				msgpack_pack_str_body(&data_pk, proxy_msg->data[i].val, proxy_msg->data[i].val_len);
+	msgpack_packer packer;	
+	msgpack_packer_init(&packer, sbuff, msgpack_sbuffer_write);
+	msgpack_pack_map(&packer, msg->data_len > 0 ? 5 : 4);
+	PACK_STR(&packer, "ts");
+	msgpack_pack_long_long(&packer, msg->ts);
+	PACK_STR(&packer, "type");
+	PACK_STR(&packer, msg->type);
+	PACK_STR(&packer, "ip");
+	PACK_STR(&packer, msg->ip);
+	PACK_STR(&packer, "action");
+	PACK_STR(&packer, msg->action);
+
+	if (msg->data_len > 0) {
+		msgpack_packer data_pk;
+		msgpack_packer_init(&data_pk, sbuff_data, msgpack_sbuffer_write);
+		msgpack_pack_map(&data_pk, msg->data_len);
+
+		for (size_t i = 0; i < msg->data_len; i++) {
+			msgpack_pack_str(&data_pk, msg->data[i].key_len);
+			msgpack_pack_str_body(&data_pk, msg->data[i].key, msg->data[i].key_len);
+			msgpack_pack_str(&data_pk, msg->data[i].val_len);
+			msgpack_pack_str_body(&data_pk, msg->data[i].val, msg->data[i].val_len);
 		}
-		PACK_STR(&pk,"data");
+		PACK_STR(&packer,"data");
 		// pack binary without header, because the data are already serialized
-		msgpack_pack_str_body(&pk, data_sbuf.data, data_sbuf.size);
-		msgpack_sbuffer_destroy(&data_sbuf);
+		msgpack_pack_str_body(&packer, sbuff_data->data, sbuff_data->size);
 	}
-	// send data length
-	if (write_all(pipe_fd, &sbuf.size, sizeof(sbuf.size)))
-		DES_AND_RET(&sbuf);
-	// send data
-	if (write_all(pipe_fd, sbuf.data, sbuf.size))
-		DES_AND_RET(&sbuf);
-	msgpack_sbuffer_destroy(&sbuf);
 	return 0;
 }

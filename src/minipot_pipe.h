@@ -19,8 +19,7 @@
 #ifndef __SENTINEL_MINIPOT_PIPE_H__
 #define __SENTINEL_MINIPOT_PIPE_H__
 
-#include <stdlib.h>
-#include <stdint.h>
+#include <msgpack.h>
 
 struct uint8_t_pair {
 	uint8_t *key;
@@ -29,7 +28,7 @@ struct uint8_t_pair {
 	size_t val_len;
 };
 
-struct proxy_msg {
+struct sentinel_msg {
 	// these fields are mandatory
 	long long int ts;
 	// these MUST be NULL terminated strings
@@ -42,10 +41,17 @@ struct proxy_msg {
 	size_t data_len;
 };
 
-// Sends proxy message to master process.
-// pipe_fd: FD of read end of pipe to master process
-// proxy_mesg: pointer to proxy_msg struct representing proxy message
-// Returns 0 if the message was sucessfully send otherwise -1 is returned.
-int proxy_report(int pipe_fd, struct proxy_msg *proxy_msg);
+// Returns 0 if passed sentinel massage is correctly filled with data.
+// If NOT it returns -1.
+int check_sentinel_msg(const struct sentinel_msg *msg);
+
+// Sends data to master process. If success returns 0 otherwise -1.
+int send_to_master(int fd, const void *data, size_t len);
+
+// Msgpacks sentinel message to passed buffers. It first checks the message
+// by calling check_sentinel_msg(). If check failed returns -1 and without
+// packing. If message check passes it packs the data and returns 0.
+int pack_sentinel_msg(msgpack_sbuffer *sbuff, msgpack_sbuffer *sbuff_data,
+	const struct sentinel_msg *msg);
 
 #endif /*__SENTINEL_MINIPOT_PIPE_H__*/
