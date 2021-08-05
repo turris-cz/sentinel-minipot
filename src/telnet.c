@@ -108,6 +108,9 @@ static struct event_base *ev_base;
 static struct conn_data *conn_data_pool;
 static uint8_t *read_buff;
 static struct event *accept_ev;
+static msgpack_sbuffer *sbuff_report;
+static msgpack_sbuffer *sbuff_data;
+
 
 static void free_conn_data(struct conn_data *conn_data) {
 	TRACE_FUNC;
@@ -193,7 +196,21 @@ static int alloc_glob_res() {
 	accept_ev = event_new(NULL, 0, 0, NULL, NULL);
 	if(accept_ev == NULL)
 		goto err4;
+	sbuff_report = msgpack_sbuffer_new();
+	if (sbuff_report == NULL)
+		goto err5;
+	msgpack_sbuffer_init(sbuff_report);
+	sbuff_data = msgpack_sbuffer_new();
+	if (sbuff_data == NULL)
+		goto err6;
+	msgpack_sbuffer_init(sbuff_data);
 	return 0;
+
+	err6:
+	msgpack_sbuffer_free(sbuff_report);
+
+	err5:
+	event_free(accept_ev);
 
 	err4:
 	free(read_buff);
@@ -215,6 +232,8 @@ static void free_glob_res() {
 	free_conn_data_pool(MAX_CONN_COUNT, conn_data_pool);
 	event_base_free(ev_base);
 	free(read_buff);
+	msgpack_sbuffer_free(sbuff_report);
+	msgpack_sbuffer_free(sbuff_data);
 }
 
 static void reset_conn_data(struct conn_data *conn_data) {
@@ -259,17 +278,22 @@ static void close_conn(struct conn_data *conn_data) {
 	event_add(accept_ev, NULL);
 }
 
-static inline void report(struct proxy_msg *proxy_msg) {
+static void report(struct sentinel_msg *sentinel_msg) {
 	TRACE_FUNC;
-	if (proxy_report(report_fd, proxy_msg) !=0) {
-		exit_code = EXIT_FAILURE;
-		event_base_loopbreak(ev_base);
-	}
+	msgpack_sbuffer_clear(sbuff_data);
+	msgpack_sbuffer_clear(sbuff_report);
+	if (pack_sentinel_msg(sbuff_report, sbuff_data, sentinel_msg))
+		goto err;
+	if (!send_to_master(report_fd, sbuff_report->data, sbuff_report->size))
+		return;
+err:
+	exit_code = EXIT_FAILURE;
+	event_base_loopbreak(ev_base);
 };
 
 static void report_connect(struct conn_data *conn_data) {
 	TRACE_FUNC_FD(conn_data->fd);
-	struct proxy_msg msg = {
+	struct sentinel_msg msg = {
 		.ts = time(NULL),
 		.type = TYPE,
 		.ip = conn_data->ipaddr_str,
@@ -282,7 +306,7 @@ static void report_connect(struct conn_data *conn_data) {
 
 static void report_invalid(struct conn_data *conn_data) {
 	TRACE_FUNC_FD(conn_data->fd);
-	struct proxy_msg msg = {
+	struct sentinel_msg msg = {
 		.ts = time(NULL),
 		.type = TYPE,
 		.ip = conn_data->ipaddr_str,
@@ -306,7 +330,7 @@ static void report_login(struct conn_data *conn_data) {
 		{LOGIN_USER, strlen(LOGIN_USER), conn_data->user, conn_data->user_len},
 		{LOGIN_PASS, strlen(LOGIN_PASS), conn_data->passw, passw_len},
 	};
-	struct proxy_msg msg = {
+	struct sentinel_msg msg = {
 		.ts = time(NULL),
 		.type = TYPE,
 		.ip = conn_data->ipaddr_str,
