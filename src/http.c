@@ -131,6 +131,8 @@ static struct token *tokens;
 static size_t tokens_cnt;
 static char *dcode_buff;
 static int dcoded_data_len;
+static msgpack_sbuffer *sbuff_report;
+static msgpack_sbuffer *sbuff_data;
 
 static void free_conn_data(struct conn_data *conn_data) {
 	TRACE_FUNC;
@@ -242,8 +244,22 @@ static int alloc_glob_res() {
 		goto err5;
 	dcode_buff = malloc(sizeof(*dcode_buff) * TOKEN_BUFF_LEN);
 	if (tokens == NULL)
-		goto err6;
+		goto err6; 
+	sbuff_report = msgpack_sbuffer_new();
+	if (sbuff_report == NULL)
+		goto err7;
+	msgpack_sbuffer_init(sbuff_report);
+	sbuff_data = msgpack_sbuffer_new();
+	if (sbuff_data == NULL)
+		goto err8;
+	msgpack_sbuffer_init(sbuff_data);
 	return 0;
+
+	err8:
+	msgpack_sbuffer_free(sbuff_report);
+
+	err7:
+	free(dcode_buff);
 
 	err6:
 	free(tokens);
@@ -273,6 +289,8 @@ static void free_glob_res() {
 	free(read_buff);
 	free(tokens);
 	free(dcode_buff);
+	msgpack_sbuffer_free(sbuff_report);
+	msgpack_sbuffer_free(sbuff_data);
 }
 
 static void reset_token_buff(struct conn_data *conn_data) {
@@ -397,17 +415,22 @@ static int send_unauth(struct conn_data *conn_data) {
 		} \
 	} while (0)
 
-static inline void report(struct proxy_msg *proxy_msg) {
+static void report(struct sentinel_msg *sentinel_msg) {
 	TRACE_FUNC;
-	if (proxy_report(report_fd, proxy_msg) !=0) {
-		exit_code = EXIT_FAILURE;
-		event_base_loopbreak(ev_base);
-	}
+	msgpack_sbuffer_clear(sbuff_data);
+	msgpack_sbuffer_clear(sbuff_report);
+	if (pack_sentinel_msg(sbuff_report, sbuff_data, sentinel_msg))
+		goto err;
+	if (!send_to_master(report_fd, sbuff_report->data, sbuff_report->size))
+		return;
+err:
+	exit_code = EXIT_FAILURE;
+	event_base_loopbreak(ev_base);
 };
 
 static void report_connect(struct conn_data *conn_data) {
 	TRACE_FUNC_FD(conn_data->fd);
-	struct proxy_msg msg = {
+	struct sentinel_msg msg = {
 		.ts = time(NULL),
 		.type = TYPE,
 		.ip = conn_data->ipaddr_str,
@@ -420,7 +443,7 @@ static void report_connect(struct conn_data *conn_data) {
 
 static void report_invalid(struct conn_data *conn_data) {
 	TRACE_FUNC_FD(conn_data->fd);
-	struct proxy_msg msg = {
+	struct sentinel_msg msg = {
 		.ts = time(NULL),
 		.type = TYPE,
 		.ip = conn_data->ipaddr_str,
@@ -444,7 +467,7 @@ static void report_message(struct conn_data *conn_data) {
 		// MUST BE THE LAST ONE - IT IS OPTIONAL !!!
 		{USER_AG, strlen(USER_AG), conn_data->user_ag, conn_data->user_ag_len},
 	};
-	struct proxy_msg msg = {
+	struct sentinel_msg msg = {
 		.ts = time(NULL),
 		.type = TYPE,
 		.ip = conn_data->ipaddr_str,
@@ -475,7 +498,7 @@ static void report_login(struct conn_data *conn_data, char *username, size_t use
 		// MUST BE THE LAST ONE - IT IS OPTIONAL !!!
 		{USER_AG, strlen(USER_AG), conn_data->user_ag, conn_data->user_ag_len},
 	};
-	struct proxy_msg msg = {
+	struct sentinel_msg msg = {
 		.ts = time(NULL),
 		.type = TYPE,
 		.ip = conn_data->ipaddr_str,
