@@ -9,7 +9,8 @@ check_PROGRAMS += %reldir%/tests
 	%reldir%/find_first_occur.c \
 	%reldir%/tokenize.c \
 	%reldir%/concat_str.c \
-	%reldir%/check_sentinel_msg.c
+	%reldir%/check_sentinel_msg.c \
+	%reldir%/pack_sentinel_msg.c
 
 
 %canon_reldir%_tests_CFLAGS = \
