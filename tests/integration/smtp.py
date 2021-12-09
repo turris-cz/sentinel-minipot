@@ -19,6 +19,7 @@ MINIPOT_LOGIN_MECH = b"login"
 MINIPOT_PLAIN_MECH = b"plain"
 MINIPOT_LOGIN_USER = b"username"
 MINIPOT_LOGIN_PASS = b"password"
+MINIPOT_LOGIN_DOMAIN = b"domain"
 
 MINIPOT_WELCOME_RESP = b"220"
 MINIPOT_EMPTY_LINE_RESP = b"500 5.5.2 Error: bad syntax\r\n"
@@ -107,17 +108,20 @@ def gen_connect_report(sock):
     return gen_proxy_report(MINIPOT_TYPE, MINIPOT_CONNECT_EV, get_ip_addr(sock))
 
 
-def gen_login_report(sock, user=b"", password=b"", sasl=""):
+def gen_login_report(sock, user=b"", password=b"", sasl=b"", domain=b""):
     """ Generates proxy report login message and returns it as dictionary.
 
     Parameters:
         sock: socket
         user: bytes
-        password: bytes """
+        password: bytes
+        sasl: bytes
+        domain: bytes """
     data = {
         MINIPOT_SASL_MECH: sasl,
         MINIPOT_LOGIN_USER: user,
         MINIPOT_LOGIN_PASS: password,
+        MINIPOT_LOGIN_DOMAIN: domain,
     }
     return gen_proxy_report(MINIPOT_TYPE, MINIPOT_LOGIN_EV, get_ip_addr(sock), data)
 
@@ -179,7 +183,7 @@ def gen_cmd(cmd, params=[]):
     return c + LF
 
 
-def gen_domain(len):
+def gen_user(len):
     """ Returns UTF-8 byte string generated randomly without byte value 0
     and 64 - @ character.
 
@@ -191,7 +195,7 @@ def gen_domain(len):
     return ret
 
 
-def gen_user(len):
+def gen_domain(len):
     """ Returns UTF-8 byte string generated randomly without byte value 0
     and 64 - @ character.
 
@@ -2274,7 +2278,7 @@ def auth_cmd_helo_sent_init_resp_test10(server_sock):
         MINIPOT_AUTH_PLAIN_INIT_RESP_RESP
     Required Minipots generated Sentinel message:
         connect
-        plain
+        login
     More description:
 
     Parameters:
@@ -3847,50 +3851,6 @@ def expect_login_passw_test2(server_sock):
     return [gen_connect_report(server_sock), gen_invalid_report(server_sock)]
 
 
-def expect_login_passw_test3(server_sock):
-    """ Sends to Minipots:
-        ehlo command with one random byte as a parameter
-        auth login command
-        valid base64 encoded username
-        valid base64 encoded password
-    Required response from Minipots':
-        MINIPOT_WELCOME_RESP
-        MINIPOT_EHLO_250_RESP
-        MINIPOT_AUTH_LOG_ASK_USER_RESP
-        MINIPOT_AUTH_LOG_ASK_FOR_PASSW
-        MINIPOT_PROC_DATA_EXPCT_LOG_PASSW_EMPTY_LINE
-    Required Minipots generated Sentinel message:
-        connect
-        login
-    More description:
-
-    Parameters:
-        server_sock: socket
-    Returns list of dictionaries - generated proxy reports or assert
-    exception if communication with minipot went wrong. """
-    response = recv_from_sock(server_sock)
-    assert response[:len(MINIPOT_WELCOME_RESP)] == MINIPOT_WELCOME_RESP
-    server_sock.sendall(EHLO_CMD)
-    response = recv_from_sock(server_sock)
-    assert response[:len(MINIPOT_EHLO_250_RESP)] == MINIPOT_EHLO_250_RESP
-    server_sock.sendall(AUTH_LOG_CMD)
-    response = recv_from_sock(server_sock)
-    assert response == MINIPOT_AUTH_LOG_ASK_USER_RESP
-    user = gen_user(randint(1, 2500))
-    data = standard_b64encode(user) + LF
-    server_sock.sendall(data)
-    response = recv_from_sock(server_sock)
-    assert response == MINIPOT_AUTH_LOG_ASK_FOR_PASSW
-    passw = gen_passw(randint(1, 2500))
-    data = standard_b64encode(passw) + LF
-    server_sock.sendall(data)
-    response = recv_from_sock(server_sock)
-    assert response == MINIPOT_PROC_DATA_EXPCT_LOG_PASSW_EMPTY_LINE
-    return [gen_connect_report(server_sock),
-            gen_login_report(server_sock, user=user, password=passw,
-                             sasl=MINIPOT_LOGIN_MECH)]
-
-
 def expect_login_passw_test4(server_sock):
     """ Sends to Minipots:
         ehlo command with one random byte as a parameter
@@ -4053,6 +4013,321 @@ def expect_login_passw_test7(server_sock):
     response = recv_from_sock(server_sock)
     assert response == MINIPOT_PROC_DATA_EXPCT_LOG_PASSW_EMPTY_LINE
     return [gen_connect_report(server_sock), gen_invalid_report(server_sock)]
+
+
+def expect_login_passw_test8(server_sock):
+    """ Sends to Minipots:
+        ehlo command with one random byte as a parameter
+        auth login command
+        valid base64 encoded username - no @
+            - only username
+        valid base64 encoded password
+    Required response from Minipots':
+        MINIPOT_WELCOME_RESP
+        MINIPOT_EHLO_250_RESP
+        MINIPOT_AUTH_LOG_ASK_USER_RESP
+        MINIPOT_AUTH_LOG_ASK_FOR_PASSW
+        MINIPOT_PROC_DATA_EXPCT_LOG_PASSW_EMPTY_LINE
+    Required Minipots generated Sentinel message:
+        connect
+        login
+    More description:
+
+    Parameters:
+        server_sock: socket
+    Returns list of dictionaries - generated proxy reports or assert
+    exception if communication with minipot went wrong. """
+    response = recv_from_sock(server_sock)
+    assert response[:len(MINIPOT_WELCOME_RESP)] == MINIPOT_WELCOME_RESP
+    server_sock.sendall(EHLO_CMD)
+    response = recv_from_sock(server_sock)
+    assert response[:len(MINIPOT_EHLO_250_RESP)] == MINIPOT_EHLO_250_RESP
+    server_sock.sendall(AUTH_LOG_CMD)
+    response = recv_from_sock(server_sock)
+    assert response == MINIPOT_AUTH_LOG_ASK_USER_RESP
+    user = gen_user(randint(1, 2500))
+    data = standard_b64encode(user) + LF
+    server_sock.sendall(data)
+    response = recv_from_sock(server_sock)
+    assert response == MINIPOT_AUTH_LOG_ASK_FOR_PASSW
+    passw = gen_passw(randint(1, 2500))
+    data = standard_b64encode(passw) + LF
+    server_sock.sendall(data)
+    response = recv_from_sock(server_sock)
+    assert response == MINIPOT_PROC_DATA_EXPCT_LOG_PASSW_EMPTY_LINE
+    return [gen_connect_report(server_sock),
+            gen_login_report(server_sock, user=user, password=passw,
+                             sasl=MINIPOT_LOGIN_MECH)]
+
+
+def expect_login_passw_test9(server_sock):
+    """ Sends to Minipots:
+        ehlo command with one random byte as a parameter
+        auth login command
+        valid base64 encoded username - only @
+            - no username
+            - no domain
+        valid base64 encoded password
+    Required response from Minipots':
+        MINIPOT_WELCOME_RESP
+        MINIPOT_EHLO_250_RESP
+        MINIPOT_AUTH_LOG_ASK_USER_RESP
+        MINIPOT_AUTH_LOG_ASK_FOR_PASSW
+        MINIPOT_PROC_DATA_EXPCT_LOG_PASSW_EMPTY_LINE
+    Required Minipots generated Sentinel message:
+        connect
+        login
+    More description:
+
+    Parameters:
+        server_sock: socket
+    Returns list of dictionaries - generated proxy reports or assert
+    exception if communication with minipot went wrong. """
+    response = recv_from_sock(server_sock)
+    assert response[:len(MINIPOT_WELCOME_RESP)] == MINIPOT_WELCOME_RESP
+    server_sock.sendall(EHLO_CMD)
+    response = recv_from_sock(server_sock)
+    assert response[:len(MINIPOT_EHLO_250_RESP)] == MINIPOT_EHLO_250_RESP
+    server_sock.sendall(AUTH_LOG_CMD)
+    response = recv_from_sock(server_sock)
+    assert response == MINIPOT_AUTH_LOG_ASK_USER_RESP
+    data = standard_b64encode(b"@") + LF
+    server_sock.sendall(data)
+    response = recv_from_sock(server_sock)
+    assert response == MINIPOT_AUTH_LOG_ASK_FOR_PASSW
+    passw = gen_passw(randint(1, 2500))
+    data = standard_b64encode(passw) + LF
+    server_sock.sendall(data)
+    response = recv_from_sock(server_sock)
+    assert response == MINIPOT_PROC_DATA_EXPCT_LOG_PASSW_EMPTY_LINE
+    return [gen_connect_report(server_sock),
+            gen_login_report(server_sock, password=passw, sasl=MINIPOT_LOGIN_MECH)]
+
+
+def expect_login_passw_test10(server_sock):
+    """ Sends to Minipots:
+        ehlo command with one random byte as a parameter
+        auth login command
+        valid base64 encoded username - username @
+            - no domain
+        valid base64 encoded password
+    Required response from Minipots':
+        MINIPOT_WELCOME_RESP
+        MINIPOT_EHLO_250_RESP
+        MINIPOT_AUTH_LOG_ASK_USER_RESP
+        MINIPOT_AUTH_LOG_ASK_FOR_PASSW
+        MINIPOT_PROC_DATA_EXPCT_LOG_PASSW_EMPTY_LINE
+    Required Minipots generated Sentinel message:
+        connect
+        login
+    More description:
+
+    Parameters:
+        server_sock: socket
+    Returns list of dictionaries - generated proxy reports or assert
+    exception if communication with minipot went wrong. """
+    response = recv_from_sock(server_sock)
+    assert response[:len(MINIPOT_WELCOME_RESP)] == MINIPOT_WELCOME_RESP
+    server_sock.sendall(EHLO_CMD)
+    response = recv_from_sock(server_sock)
+    assert response[:len(MINIPOT_EHLO_250_RESP)] == MINIPOT_EHLO_250_RESP
+    server_sock.sendall(AUTH_LOG_CMD)
+    response = recv_from_sock(server_sock)
+    assert response == MINIPOT_AUTH_LOG_ASK_USER_RESP
+    user = gen_user(randint(1, 500))
+    data = standard_b64encode(user + b"@") + LF
+    server_sock.sendall(data)
+    response = recv_from_sock(server_sock)
+    assert response == MINIPOT_AUTH_LOG_ASK_FOR_PASSW
+    passw = gen_passw(randint(1, 2500))
+    data = standard_b64encode(passw) + LF
+    server_sock.sendall(data)
+    response = recv_from_sock(server_sock)
+    assert response == MINIPOT_PROC_DATA_EXPCT_LOG_PASSW_EMPTY_LINE
+    return [gen_connect_report(server_sock),
+            gen_login_report(server_sock, password=passw, user=user,
+                             sasl=MINIPOT_LOGIN_MECH)]
+
+
+def expect_login_passw_test11(server_sock):
+    """ Sends to Minipots:
+        ehlo command with one random byte as a parameter
+        auth login command
+        valid base64 encoded username - @ domain
+            - no username
+        valid base64 encoded password
+    Required response from Minipots':
+        MINIPOT_WELCOME_RESP
+        MINIPOT_EHLO_250_RESP
+        MINIPOT_AUTH_LOG_ASK_USER_RESP
+        MINIPOT_AUTH_LOG_ASK_FOR_PASSW
+        MINIPOT_PROC_DATA_EXPCT_LOG_PASSW_EMPTY_LINE
+    Required Minipots generated Sentinel message:
+        connect
+        login
+    More description:
+
+    Parameters:
+        server_sock: socket
+    Returns list of dictionaries - generated proxy reports or assert
+    exception if communication with minipot went wrong. """
+    response = recv_from_sock(server_sock)
+    assert response[:len(MINIPOT_WELCOME_RESP)] == MINIPOT_WELCOME_RESP
+    server_sock.sendall(EHLO_CMD)
+    response = recv_from_sock(server_sock)
+    assert response[:len(MINIPOT_EHLO_250_RESP)] == MINIPOT_EHLO_250_RESP
+    server_sock.sendall(AUTH_LOG_CMD)
+    response = recv_from_sock(server_sock)
+    assert response == MINIPOT_AUTH_LOG_ASK_USER_RESP
+    dom = gen_domain(randint(1, 500))
+    data = standard_b64encode(b"@" + dom) + LF
+    server_sock.sendall(data)
+    response = recv_from_sock(server_sock)
+    assert response == MINIPOT_AUTH_LOG_ASK_FOR_PASSW
+    passw = gen_passw(randint(1, 2500))
+    data = standard_b64encode(passw) + LF
+    server_sock.sendall(data)
+    response = recv_from_sock(server_sock)
+    assert response == MINIPOT_PROC_DATA_EXPCT_LOG_PASSW_EMPTY_LINE
+    return [gen_connect_report(server_sock),
+            gen_login_report(server_sock, password=passw, domain=dom,
+                             sasl=MINIPOT_LOGIN_MECH)]
+
+
+def expect_login_passw_test12(server_sock):
+    """ Sends to Minipots:
+        ehlo command with one random byte as a parameter
+        auth login command
+        valid base64 encoded username - username @ domain
+        valid base64 encoded password
+    Required response from Minipots':
+        MINIPOT_WELCOME_RESP
+        MINIPOT_EHLO_250_RESP
+        MINIPOT_AUTH_LOG_ASK_USER_RESP
+        MINIPOT_AUTH_LOG_ASK_FOR_PASSW
+        MINIPOT_PROC_DATA_EXPCT_LOG_PASSW_EMPTY_LINE
+    Required Minipots generated Sentinel message:
+        connect
+        login
+    More description:
+
+    Parameters:
+        server_sock: socket
+    Returns list of dictionaries - generated proxy reports or assert
+    exception if communication with minipot went wrong. """
+    response = recv_from_sock(server_sock)
+    assert response[:len(MINIPOT_WELCOME_RESP)] == MINIPOT_WELCOME_RESP
+    server_sock.sendall(EHLO_CMD)
+    response = recv_from_sock(server_sock)
+    assert response[:len(MINIPOT_EHLO_250_RESP)] == MINIPOT_EHLO_250_RESP
+    server_sock.sendall(AUTH_LOG_CMD)
+    response = recv_from_sock(server_sock)
+    assert response == MINIPOT_AUTH_LOG_ASK_USER_RESP
+    user = gen_user(randint(1, 500))
+    dom = gen_domain(randint(1, 500))
+    data = standard_b64encode(user + b"@" + dom) + LF
+    server_sock.sendall(data)
+    response = recv_from_sock(server_sock)
+    assert response == MINIPOT_AUTH_LOG_ASK_FOR_PASSW
+    passw = gen_passw(randint(1, 2500))
+    data = standard_b64encode(passw) + LF
+    server_sock.sendall(data)
+    response = recv_from_sock(server_sock)
+    assert response == MINIPOT_PROC_DATA_EXPCT_LOG_PASSW_EMPTY_LINE
+    return [gen_connect_report(server_sock),
+            gen_login_report(server_sock, password=passw, domain=dom,
+                             user=user, sasl=MINIPOT_LOGIN_MECH)]
+
+
+def expect_login_passw_test13(server_sock):
+    """ Sends to Minipots:
+        ehlo command with one random byte as a parameter
+        auth login command
+        valid base64 encoded username - @@
+            - empty domain
+        valid base64 encoded password
+    Required response from Minipots':
+        MINIPOT_WELCOME_RESP
+        MINIPOT_EHLO_250_RESP
+        MINIPOT_AUTH_LOG_ASK_USER_RESP
+        MINIPOT_AUTH_LOG_ASK_FOR_PASSW
+        MINIPOT_PROC_DATA_EXPCT_LOG_PASSW_EMPTY_LINE
+    Required Minipots generated Sentinel message:
+        connect
+        login
+    More description:
+
+    Parameters:
+        server_sock: socket
+    Returns list of dictionaries - generated proxy reports or assert
+    exception if communication with minipot went wrong. """
+    response = recv_from_sock(server_sock)
+    assert response[:len(MINIPOT_WELCOME_RESP)] == MINIPOT_WELCOME_RESP
+    server_sock.sendall(EHLO_CMD)
+    response = recv_from_sock(server_sock)
+    assert response[:len(MINIPOT_EHLO_250_RESP)] == MINIPOT_EHLO_250_RESP
+    server_sock.sendall(AUTH_LOG_CMD)
+    response = recv_from_sock(server_sock)
+    assert response == MINIPOT_AUTH_LOG_ASK_USER_RESP
+    user = b"@"
+    data = standard_b64encode(user + b"@") + LF
+    server_sock.sendall(data)
+    response = recv_from_sock(server_sock)
+    assert response == MINIPOT_AUTH_LOG_ASK_FOR_PASSW
+    passw = gen_passw(randint(1, 2500))
+    data = standard_b64encode(passw) + LF
+    server_sock.sendall(data)
+    response = recv_from_sock(server_sock)
+    assert response == MINIPOT_PROC_DATA_EXPCT_LOG_PASSW_EMPTY_LINE
+    return [gen_connect_report(server_sock),
+            gen_login_report(server_sock, password=passw, user=user,
+                             sasl=MINIPOT_LOGIN_MECH)]
+
+
+def expect_login_passw_test14(server_sock):
+    """ Sends to Minipots:
+        ehlo command with one random byte as a parameter
+        auth login command
+        valid base64 encoded username -  user @ user @ domain
+            - empty domain
+        valid base64 encoded password
+    Required response from Minipots':
+        MINIPOT_WELCOME_RESP
+        MINIPOT_EHLO_250_RESP
+        MINIPOT_AUTH_LOG_ASK_USER_RESP
+        MINIPOT_AUTH_LOG_ASK_FOR_PASSW
+        MINIPOT_PROC_DATA_EXPCT_LOG_PASSW_EMPTY_LINE
+    Required Minipots generated Sentinel message:
+        connect
+        login
+    More description:
+
+    Parameters:
+        server_sock: socket
+    Returns list of dictionaries - generated proxy reports or assert
+    exception if communication with minipot went wrong. """
+    response = recv_from_sock(server_sock)
+    assert response[:len(MINIPOT_WELCOME_RESP)] == MINIPOT_WELCOME_RESP
+    server_sock.sendall(EHLO_CMD)
+    response = recv_from_sock(server_sock)
+    assert response[:len(MINIPOT_EHLO_250_RESP)] == MINIPOT_EHLO_250_RESP
+    server_sock.sendall(AUTH_LOG_CMD)
+    response = recv_from_sock(server_sock)
+    assert response == MINIPOT_AUTH_LOG_ASK_USER_RESP
+    user = gen_user(randint(1,200)) + b"@" + gen_user(randint(1, 200))
+    dom = gen_domain(randint(1, 200))
+    data = standard_b64encode(user + b"@" + dom) + LF
+    server_sock.sendall(data)
+    response = recv_from_sock(server_sock)
+    assert response == MINIPOT_AUTH_LOG_ASK_FOR_PASSW
+    passw = gen_passw(randint(1, 2500))
+    data = standard_b64encode(passw) + LF
+    server_sock.sendall(data)
+    response = recv_from_sock(server_sock)
+    assert response == MINIPOT_PROC_DATA_EXPCT_LOG_PASSW_EMPTY_LINE
+    return [gen_connect_report(server_sock),
+            gen_login_report(server_sock, password=passw, user=user,
+                             sasl=MINIPOT_LOGIN_MECH, domain=dom)]
 
 
 ################################################################################

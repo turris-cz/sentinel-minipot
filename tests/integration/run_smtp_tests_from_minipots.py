@@ -200,6 +200,8 @@ if __name__ == "__main__":
     Test("expect_login_passw_test_10", log_dir, (handler, sock), [(s.expect_login_passw_test10, host, port)]).run()
     Test("expect_login_passw_test_11", log_dir, (handler, sock), [(s.expect_login_passw_test11, host, port)]).run()
     Test("expect_login_passw_test_12", log_dir, (handler, sock), [(s.expect_login_passw_test12, host, port)]).run()
+    Test("expect_login_passw_test_13", log_dir, (handler, sock), [(s.expect_login_passw_test13, host, port)]).run()
+    Test("expect_login_passw_test_14", log_dir, (handler, sock), [(s.expect_login_passw_test14, host, port)]).run()
 
     Test("plain_init_brute_force", log_dir, (handler, sock), [(s.plain_init_brute_force, host, port)]).run()
     Test("plain_brute_force", log_dir, (handler, sock), [(s.plain_brute_force, host, port)]).run()
