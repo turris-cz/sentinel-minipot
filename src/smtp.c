@@ -49,6 +49,8 @@
 #define SASL_MECH "mechanism"
 #define SASL_LOGIN "login"
 #define SASL_PLAIN "plain"
+#define DOMAIN "domain"
+#define OUR_DOMAIN "our_domain"
 
 #define TOUT_RESP_PART1 "421 4.4.2 "
 #define TOUT_RESP_PART2 " Error: timeout exceeded\r\n"
@@ -150,6 +152,7 @@ static int dcoded_data_len;
 static struct token *tokens;
 static size_t tokens_cnt;
 static char host_name[HOSTNAME_LEN] = {};
+static size_t host_name_len;
 
 static void free_conn_data(struct conn_data *conn_data) {
 	TRACE_FUNC;
@@ -389,11 +392,26 @@ static void report_login_login(struct conn_data *conn_data) {
 		report_invalid(conn_data);
 		return;
 	}
+
+	// We can terminate it because log_user was copied from decode buffer
+	// previously. Dcode buffer and log_ser has same memory length as original
+	// data. But after decoding it has maximum 3/4 of the original count of bytes.
+	conn_data->log_user[conn_data->log_user_len] = '\0';
+	char *at = strrchr(conn_data->log_user, '@');
+
+	uint8_t *username = conn_data->log_user;
+	size_t username_len = at ? (uint8_t*)at - username : conn_data->log_user_len;
+
+	uint8_t *domain = at ? at + 1 : NULL;
+	size_t domain_len = at ? conn_data->log_user_len - 1 - username_len : 0;
+
 	struct uint8_t_pair data[] = {
-		{LOGIN_USER, strlen(LOGIN_USER), conn_data->log_user, conn_data->log_user_len},
+		{LOGIN_USER, strlen(LOGIN_USER), username, username_len},
 		// we don't need store password for reporting - it is in dcode buffer
 		{LOGIN_PASS, strlen(LOGIN_PASS), dcode_buff, dcoded_data_len},
 		{SASL_MECH, strlen(SASL_MECH), SASL_LOGIN, strlen(SASL_LOGIN)},
+		{OUR_DOMAIN, strlen(OUR_DOMAIN), host_name, host_name_len},
+		{DOMAIN, strlen(DOMAIN), domain, domain_len},
 	};
 	struct proxy_msg msg = {
 		.ts = time(NULL),
@@ -408,28 +426,41 @@ static void report_login_login(struct conn_data *conn_data) {
 
 static void report_login_plain(struct conn_data *conn_data) {
 	TRACE_FUNC_FD(conn_data->fd);
-	char *authzid = dcode_buff;
+	uint8_t *authzid = dcode_buff;
 	// find first null
-	char *null_byte = memchr(authzid, NUL, dcoded_data_len);
+	uint8_t *null_byte = memchr(authzid, NUL, dcoded_data_len);
 	if (null_byte == NULL)
 		goto err;
 	size_t authzid_len = null_byte - authzid;
-	char *authcid = null_byte + 1;
+	uint8_t *authcid = null_byte + 1;
 	// find second null
 	null_byte = memchr(authcid, NUL, dcoded_data_len - authzid_len - 1);
 	if (null_byte == NULL)
 		goto err;
 	size_t authcid_len = null_byte - authcid;
-	char *password = null_byte + 1;
+	uint8_t *password = null_byte + 1;
 	size_t password_len = dcoded_data_len - authzid_len - authcid_len - 2;
 	if (authcid_len == 0 ||
 		check_serv_data(authcid, authcid_len) ||
 		check_serv_data(password, password_len))
 		goto err;
+
+	// we can use strrchr here because authcid is for sure NULL terminated here
+	char *at = strrchr(authcid, '@');
+
+	uint8_t *username = authcid;
+	size_t username_len = at ? (uint8_t*)at - username : authcid_len;
+
+	uint8_t *domain = at ? at + 1 : NULL;
+	size_t domain_len = at ? authcid_len - 1 - username_len : 0;
+
+
 	struct uint8_t_pair data[] = {
-		{LOGIN_USER, strlen(LOGIN_USER), authcid, authcid_len},
 		{LOGIN_PASS, strlen(LOGIN_PASS), password, password_len},
 		{SASL_MECH, strlen(SASL_MECH), SASL_PLAIN, strlen(SASL_PLAIN)},
+		{OUR_DOMAIN, strlen(OUR_DOMAIN), host_name, host_name_len},
+		{DOMAIN, strlen(DOMAIN), domain, domain_len},
+		{LOGIN_USER, strlen(LOGIN_USER), username, username_len},
 	};
 	struct proxy_msg msg = {
 		.ts = time(NULL),
@@ -1040,7 +1071,7 @@ static void on_accept(int listen_fd, short ev, void *arg) {
 	info("Accepted connection with FD: %d", conn_data->fd);
 }
 
-static void gen_host_name() {
+static size_t gen_host_name() {
 	TRACE_FUNC;
 	srand(time(NULL));
 	size_t pos = 0;
@@ -1083,6 +1114,7 @@ static void gen_host_name() {
 			host_name[pos++] = 'z';
 			break;
 	}
+	return pos;
 }
 
 int handle_smtp(int listen_fd, int pipe_write_fd) {
@@ -1099,7 +1131,7 @@ int handle_smtp(int listen_fd, int pipe_write_fd) {
 		exit_code = EXIT_FAILURE;
 		goto sigint_ev_err;
 	}
-	gen_host_name();
+	host_name_len = gen_host_name();
 	signal(SIGPIPE, SIG_IGN);
 	event_assign(accept_ev, ev_base, listen_fd, EV_READ | EV_PERSIST, on_accept, NULL);
 	event_add(accept_ev, NULL);

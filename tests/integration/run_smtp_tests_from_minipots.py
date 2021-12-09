@@ -141,11 +141,26 @@ if __name__ == "__main__":
     Test("auth_cmd_helo_sent_init_resp_test_17", log_dir, (handler, sock),
          [(s.auth_cmd_helo_sent_init_resp_test17, host, port)]).run()
     Test("auth_cmd_helo_sent_init_resp_test_18", log_dir, (handler, sock),
-         [(s.auth_cmd_helo_sent_init_resp_test17, host, port)]).run()
+         [(s.auth_cmd_helo_sent_init_resp_test18, host, port)]).run()
     Test("auth_cmd_helo_sent_init_resp_test_19", log_dir, (handler, sock),
-         [(s.auth_cmd_helo_sent_init_resp_test17, host, port)]).run()
+         [(s.auth_cmd_helo_sent_init_resp_test19, host, port)]).run()
     Test("auth_cmd_helo_sent_init_resp_test_20", log_dir, (handler, sock),
-         [(s.auth_cmd_helo_sent_init_resp_test17, host, port)]).run()
+         [(s.auth_cmd_helo_sent_init_resp_test20, host, port)]).run()
+    Test("auth_cmd_helo_sent_init_resp_test_21", log_dir, (handler, sock),
+         [(s.auth_cmd_helo_sent_init_resp_test21, host, port)]).run()
+    Test("auth_cmd_helo_sent_init_resp_test_22", log_dir, (handler, sock),
+         [(s.auth_cmd_helo_sent_init_resp_test22, host, port)]).run()
+    Test("auth_cmd_helo_sent_init_resp_test_23", log_dir, (handler, sock),
+         [(s.auth_cmd_helo_sent_init_resp_test23, host, port)]).run()
+    Test("auth_cmd_helo_sent_init_resp_test_24", log_dir, (handler, sock),
+         [(s.auth_cmd_helo_sent_init_resp_test24, host, port)]).run()
+    Test("auth_cmd_helo_sent_init_resp_test_25", log_dir, (handler, sock),
+         [(s.auth_cmd_helo_sent_init_resp_test25, host, port)]).run()
+    Test("auth_cmd_helo_sent_init_resp_test_26", log_dir, (handler, sock),
+         [(s.auth_cmd_helo_sent_init_resp_test26, host, port)]).run()
+    Test("auth_cmd_helo_sent_init_resp_test_27", log_dir, (handler, sock),
+         [(s.auth_cmd_helo_sent_init_resp_test27, host, port)]).run()
+
 
     Test("auth_cmd_helo_sent_too_much_param_test_1", log_dir, (handler, sock),
          [(s.auth_cmd_helo_sent_too_much_param_test1, host, port)]).run()
@@ -176,11 +191,15 @@ if __name__ == "__main__":
 
     Test("expect_login_passw_test_1", log_dir, (handler, sock), [(s.expect_login_passw_test1, host, port)]).run()
     Test("expect_login_passw_test_2", log_dir, (handler, sock), [(s.expect_login_passw_test2, host, port)]).run()
-    Test("expect_login_passw_test_3", log_dir, (handler, sock), [(s.expect_login_passw_test3, host, port)]).run()
     Test("expect_login_passw_test_4", log_dir, (handler, sock), [(s.expect_login_passw_test4, host, port)]).run()
     Test("expect_login_passw_test_5", log_dir, (handler, sock), [(s.expect_login_passw_test5, host, port)]).run()
     Test("expect_login_passw_test_6", log_dir, (handler, sock), [(s.expect_login_passw_test6, host, port)]).run()
     Test("expect_login_passw_test_7", log_dir, (handler, sock), [(s.expect_login_passw_test7, host, port)]).run()
+    Test("expect_login_passw_test_8", log_dir, (handler, sock), [(s.expect_login_passw_test8, host, port)]).run()
+    Test("expect_login_passw_test_9", log_dir, (handler, sock), [(s.expect_login_passw_test9, host, port)]).run()
+    Test("expect_login_passw_test_10", log_dir, (handler, sock), [(s.expect_login_passw_test10, host, port)]).run()
+    Test("expect_login_passw_test_11", log_dir, (handler, sock), [(s.expect_login_passw_test11, host, port)]).run()
+    Test("expect_login_passw_test_12", log_dir, (handler, sock), [(s.expect_login_passw_test12, host, port)]).run()
 
     Test("plain_init_brute_force", log_dir, (handler, sock), [(s.plain_init_brute_force, host, port)]).run()
     Test("plain_brute_force", log_dir, (handler, sock), [(s.plain_brute_force, host, port)]).run()
