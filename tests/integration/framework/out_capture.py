@@ -30,7 +30,10 @@ def minipot_out_capture(zmq_sock_path):
                 raise Exception("wrong topic: ", topic)
             received = msgpack.unpackb(zmq_mesg[1], raw=True)
             for mesg in received:
-                # remove timestamp, because of later matching received reports with generated reports
+                if mesg[TS] <= 0:
+                    raise Exception("Time stamp has invalid value.")
+                # Remove timestamp, because of later matching received reports
+                # with generated reports
                 del mesg[TS]
                 if mesg[b"type"] == b"smtp" and mesg[b"action"] == b"login":
                     if not DOMAIN_RE.match(mesg[b"data"][b"our_domain"].decode()):
