@@ -4,7 +4,7 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [2.3.0] - 2021-12-14
 ### Added
 - Gitlab CI
 - `libevent_logc` and `libczmq_logc` as dependency
@@ -12,6 +12,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Changed
 - Repository layout
 - Minimal version of LogC to 0.2.0
+- SMTP minipot: split received username string to username and domain
+- integration tests: check timestamp value
 
 ### Fixed
 - Out of source tree build
