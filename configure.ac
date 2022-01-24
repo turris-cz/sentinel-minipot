@@ -29,8 +29,10 @@ AS_IF([test "$argp_standalone_required" = "yes"],
   AC_CHECK_LIB([argp], [argp_parse], , AC_MSG_ERROR([Unable to find libargp])))
 
 dnl Build helpers
-AC_PATH_PROG([GPERF], [gperf])
-AS_IF([test -z "$GPERF"], [AC_MSG_ERROR([Missing gperf generator])])
+AS_IF([test -x "${0%/*}/bootstrap" ],[
+  AC_PATH_PROG([GPERF], [gperf])
+  AS_IF([test -z "$GPERF"], [AC_MSG_ERROR([Missing gperf generator])])
+])
 AM_CONDITIONAL([GPERF_GENERATE], [test -n "$GPERF"])
 
 
