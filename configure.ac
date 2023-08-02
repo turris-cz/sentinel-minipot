@@ -14,7 +14,7 @@ AC_GNU_SOURCE
 
 dnl Libraries
 PKG_CHECK_MODULES([czmq], [libczmq])
-PKG_CHECK_MODULES([msgpack], [msgpack])
+PKG_CHECK_MODULES([msgpack], [msgpack-c],,[PKG_CHECK_MODULES([msgpack], [msgpack])])
 PKG_CHECK_MODULES([libevent], [libevent])
 PKG_CHECK_MODULES([base64c], [base64c])
 PKG_CHECK_MODULES([logc], [logc >= 0.2.0 logc_argp])
