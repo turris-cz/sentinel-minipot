@@ -370,50 +370,58 @@ static inline int send_resp(struct conn_data *conn_data, char *mesg) {
 /*
  * Allocates exact needed amount of memory and fills buffer with string time representation
  */
-static void fill_time(char **buff) {
+static char *fill_time() {
 	TRACE_FUNC;
 	time_t rawtime;
 	time(&rawtime);
 	struct tm *timeinfo = gmtime(&rawtime);
 	char *time_str = malloc(TIME_STRING_SIZE);
-	strftime(time_str, TIME_STRING_SIZE, TIME_FORMAT, timeinfo);
-	*buff = time_str;
+        if (time_str != NULL) {
+                strftime(time_str, TIME_STRING_SIZE, TIME_FORMAT, timeinfo);
+        }
+        return time_str;
 }
 
 static int send_bad_req(struct conn_data *conn_data) {
 	TRACE_FUNC_FD(conn_data->fd);
-	char *time_str;
-	fill_time(&time_str);
-	char *mesg;
-	concat_str(&mesg, 3, BAD_REQ_PART1, time_str, BAD_REQ_PART2);
-	int ret = send_resp(conn_data, mesg);
-	free(time_str);
-	free(mesg);
-	return ret;
+	char *time_str = fill_time();
+	if (time_str != NULL) {
+                char *mesg;
+                concat_str(&mesg, 3, BAD_REQ_PART1, time_str, BAD_REQ_PART2);
+                int ret = send_resp(conn_data, mesg);
+                free(time_str);
+                free(mesg);
+               return ret;
+        }
+        return -1;
 }
 
 static int send_uri_too_long(struct conn_data *conn_data) {
 	TRACE_FUNC_FD(conn_data->fd);
-	char *time_str;
-	fill_time(&time_str);
-	char *mesg;
-	concat_str(&mesg, 3, URI_TOO_LONG_PART1, time_str, URI_TOO_LONG_PART2);
-	int ret = send_resp(conn_data, mesg);
-	free(time_str);
-	free(mesg);
-	return ret;
+	char *time_str = fill_time();
+	if (time_str != NULL) {
+                char *mesg;
+                concat_str(&mesg, 3, URI_TOO_LONG_PART1, time_str, URI_TOO_LONG_PART2);
+                int ret = send_resp(conn_data, mesg);
+                free(time_str);
+                free(mesg);
+                return ret;
+        }
+        return -1;
 }
 
 static int send_unauth(struct conn_data *conn_data) {
 	TRACE_FUNC_FD(conn_data->fd);
-	char *time_str;
-	fill_time(&time_str);
-	char *mesg;
-	concat_str(&mesg, 3, UNAUTH_REQ_PART1, time_str, UNAUTH_REQ_PART2);
-	int ret = send_resp(conn_data, mesg);
-	free(time_str);
-	free(mesg);
-	return ret;
+	char *time_str = fill_time();
+	if (time_str != NULL) {
+                char *mesg;
+                concat_str(&mesg, 3, UNAUTH_REQ_PART1, time_str, UNAUTH_REQ_PART2);
+                int ret = send_resp(conn_data, mesg);
+                free(time_str);
+                free(mesg);
+                return ret;
+        }
+        return -1;
 }
 
 #define FLOW_GUARD_WITH_RESP(cmd, conn_data) do { \
