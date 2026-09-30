@@ -1,7 +1,7 @@
 # Wee need unstable for now because of check version
 FROM debian:unstable
 
-ENV HOME /root
+ENV HOME=/root
 
 RUN \
   apt-get update && \

@@ -1,4 +1,4 @@
-image: registry.nic.cz/turris/sentinel/minipot
+image: "$CI_REGISTRY_IMAGE"
 
 stages:
   - build
