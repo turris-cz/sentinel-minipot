@@ -15,22 +15,22 @@ static struct uint8_t_pair invalid_data03 = {
 	.key = STR, .key_len = strlen(STR), .val = NULL, .val_len = strlen(STR)
 };
 
-static const struct sentinel_msg invalid_messgess[] = {
-	{0, "a", "b", "c", NULL, 0},
-	{1, NULL, "b", "c", NULL, 0},
-	{1, "", "b", "c", NULL, 0},
-	{1, "a", NULL, "c", NULL, 0},
-	{1, "a", "", "c", NULL, 0},
-	{1, "a", "b", NULL, NULL, 0},
-	{1, "a", "b", "", NULL, 0},
-	{1, "a", "b", "c", NULL, 1},
-	{1, "a", "b", "c", &invalid_data01, 1},
-	{1, "a", "b", "c", &invalid_data02, 1},
-	{1, "a", "b", "c", &invalid_data03, 1},
+static const struct sentinel_msg invalid_messages[] = {
+	{0, "a", "b", "c", "d", NULL, 0},
+	{1, NULL, "b", "c", "d", NULL, 0},
+	{1, "", "b", "c", "d", NULL, 0},
+	{1, "a", NULL, "c", NULL, NULL, 0},
+	{1, "a", "", "c", "", NULL, 0},
+	{1, "a", "b", NULL, NULL, NULL, 0},
+	{1, "a", "b", "", "", NULL, 0},
+	{1, "a", "b", "c", "d", NULL, 1},
+	{1, "a", "b", "c", "d", &invalid_data01, 1},
+	{1, "a", "b", "c", "d", &invalid_data02, 1},
+	{1, "a", "b", "c", "d", &invalid_data03, 1},
 };
 
 START_TEST (fail_test) {
-	ck_assert_int_eq(check_sentinel_msg(&invalid_messgess[_i]), -1);
+	ck_assert_int_eq(check_sentinel_msg(&invalid_messages[_i]), -1);
 } END_TEST
 
 static struct uint8_t_pair valid_data01 = {
@@ -47,14 +47,14 @@ static struct uint8_t_pair valid_data03 = {
 };
 
 
-static const struct sentinel_msg valid_messgess[] = {
-	{1, "a", "b", "c", NULL, 0},
-	{1, "a", "b", "c", &valid_data01, 1},
-	{1, "a", "b", "c", &valid_data02, 1},
+static const struct sentinel_msg valid_messages[] = {
+	{1, "a", "b", "c", "d", NULL, 0},
+	{1, "a", "b", "c", "d", &valid_data01, 1},
+	{1, "a", "b", "c", "d", &valid_data02, 1},
 };
 
 START_TEST (pass_test) {
-	ck_assert_int_eq(check_sentinel_msg(&valid_messgess[_i]), 0);
+	ck_assert_int_eq(check_sentinel_msg(&valid_messages[_i]), 0);
 } END_TEST
 
 
@@ -64,13 +64,13 @@ void suite_check_sentinel_msg(SRunner *runner) {
 
 	TCase *fail_tc = tcase_create("fail");
 	tcase_add_loop_test(fail_tc, fail_test, 0,
-		sizeof(invalid_messgess) / sizeof(*invalid_messgess));
+		sizeof(invalid_messages) / sizeof(*invalid_messages));
 	suite_add_tcase(suite, fail_tc);
 
 
 	TCase *pass_tc = tcase_create("pass");
 	tcase_add_loop_test(pass_tc, pass_test, 0,
-		sizeof(valid_messgess) / sizeof(*valid_messgess));
+		sizeof(valid_messages) / sizeof(*valid_messages));
 	suite_add_tcase(suite, pass_tc);
 
 	srunner_add_suite(runner, suite);

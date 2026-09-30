@@ -1,6 +1,6 @@
 /*
  *  Turris:Sentinel Minipot - password Honeypot
- *  Copyright (C) 2019-2020 CZ.NIC z.s.p.o. (https://www.nic.cz/)
+ *  Copyright (C) 2019-2026 CZ.NIC z.s.p.o. (https://www.nic.cz/)
  *
  *  This program is free software: you can redistribute it and/or modify
  *  it under the terms of the GNU General Public License as published by
@@ -86,6 +86,7 @@ struct conn_data {
 	struct event *con_tout_ev;
 	struct event *inac_tout_ev;
 	char *ipaddr_str;
+	char *local_ipaddr_str;
 	// Local context - like expecting a command specifier as the next character, etc.
 	enum expect expect;
 	// What was the last verb used for option negotiation
@@ -117,6 +118,7 @@ static void free_conn_data(struct conn_data *conn_data) {
 	free(conn_data->passw);
 	free(conn_data->user);
 	free(conn_data->ipaddr_str);
+	free(conn_data->local_ipaddr_str);
 	event_free(conn_data->inac_tout_ev);
 	event_free(conn_data->con_tout_ev);
 	event_free(conn_data->read_ev);
@@ -136,17 +138,23 @@ static int alloc_conn_data(struct conn_data *conn_data) {
 	conn_data->ipaddr_str = malloc(sizeof(*conn_data->ipaddr_str) * IP_ADDR_LEN);
 	if (conn_data->ipaddr_str == NULL)
 		goto err4;
+	conn_data->local_ipaddr_str = malloc(sizeof(*conn_data->local_ipaddr_str) * IP_ADDR_LEN);
+	if (conn_data->local_ipaddr_str == NULL)
+		goto err5;
 	conn_data->user = malloc(sizeof(*conn_data->user) * MAX_LINE_LEN);
 	if (conn_data->user == NULL)
-		goto err5;
+		goto err6;
 	conn_data->passw = malloc(sizeof(*conn_data->passw) * MAX_LINE_LEN);
 	if (conn_data->passw == NULL)
-		goto err6;
+		goto err7;
 	conn_data->fd = -1;
 	return 0;
 
-	err6:
+	err7:
 	free(conn_data->user);
+
+	err6:
+	free(conn_data->local_ipaddr_str);
 
 	err5:
 	free(conn_data->ipaddr_str);
@@ -297,6 +305,7 @@ static void report_connect(struct conn_data *conn_data) {
 		.ts = time(NULL),
 		.type = TYPE,
 		.ip = conn_data->ipaddr_str,
+		.local_ip = conn_data->local_ipaddr_str,
 		.action = CONNECT_EV,
 		.data = NULL,
 		.data_len = 0,
@@ -310,6 +319,7 @@ static void report_invalid(struct conn_data *conn_data) {
 		.ts = time(NULL),
 		.type = TYPE,
 		.ip = conn_data->ipaddr_str,
+		.local_ip = conn_data->local_ipaddr_str,
 		.action = INVALID_EV,
 		.data = NULL,
 		.data_len = 0,
@@ -334,6 +344,7 @@ static void report_login(struct conn_data *conn_data) {
 		.ts = time(NULL),
 		.type = TYPE,
 		.ip = conn_data->ipaddr_str,
+		.local_ip = conn_data->local_ipaddr_str,
 		.action = LOGIN_EV,
 		.data = data,
 		.data_len = sizeof(data) / sizeof(*data),
@@ -490,7 +501,7 @@ static int char_handle(struct conn_data *conn_data, uint8_t ch) {
 				return proc_line(conn_data);
 			return 0;
 		default:
-			error("Invalid expect state on connection with FD:", conn_data->fd);
+			error("Invalid expect state on connection with FD: %d", conn_data->fd);
 			return -1;
 	}
 }
@@ -528,31 +539,51 @@ static void on_accept(int listen_fd, short ev, void *arg) {
 	TRACE_FUNC;
 	struct sockaddr_storage conn_addr;
 	socklen_t conn_addr_len = sizeof(conn_addr);
+
 	int conn_fd = accept(listen_fd, (struct sockaddr *)&conn_addr, &conn_addr_len);
 	if (conn_fd < 0) {
 		error("Couldn't accept connection on socket with FD: %d", listen_fd);
 		return;
 	}
+
 	if (setnonblock(conn_fd) != 0) {
 		close(conn_fd);
 		return;
 	}
+
 	struct conn_data *conn_data = get_conn_data(conn_fd);
 	if (conn_data == NULL) {
 		info("No free conn_data slots. Refusing connection");
 		close(conn_fd);
 		return;
 	}
+
 	if (sockaddr2str(&conn_addr, conn_data->ipaddr_str) != 0) {
 		exit_code = EXIT_FAILURE;
 		event_base_loopbreak(ev_base);
 		return;
 	}
+
+	struct sockaddr_storage local_addr;
+	socklen_t local_addr_len = sizeof(local_addr);
+	if (getsockname(conn_fd, (struct sockaddr *)&local_addr, &local_addr_len) == -1) {
+		info("Cannot get local IP address");
+		close(conn_fd);
+		return;
+	}
+
+	if (sockaddr2str(&local_addr, conn_data->local_ipaddr_str) != 0) {
+		exit_code = EXIT_FAILURE;
+		event_base_loopbreak(ev_base);
+		return;
+	}
+
 	if (send_resp(conn_data, ASK_FOR_USER) != 0) {
 		close(conn_data->fd);
 		conn_data->fd = -1;
 		return;
 	}
+
 	event_assign(conn_data->read_ev, ev_base, conn_data->fd, EV_READ | EV_PERSIST, on_recv, conn_data);
 	event_add(conn_data->read_ev, NULL);
 	evtimer_assign(conn_data->con_tout_ev, ev_base, on_timeout, conn_data);

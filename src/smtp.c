@@ -1,6 +1,6 @@
 /*
  *  Turris:Sentinel Minipot - password Honeypot
- *  Copyright (C) 2019-2020 CZ.NIC z.s.p.o. (https://www.nic.cz/)
+ *  Copyright (C) 2019-2026 CZ.NIC z.s.p.o. (https://www.nic.cz/)
  *
  *  This program is free software: you can redistribute it and/or modify
  *  it under the terms of the GNU General Public License as published by
@@ -132,6 +132,7 @@ struct conn_data {
 	struct event *con_tout_ev;
 	struct event *inac_tout_ev;
 	char *ipaddr_str;
+	char *local_ipaddr_str;
 	uint8_t *token_buff;
 	uint8_t *token_buff_wrt_ptr;
 	size_t token_buff_free_space;
@@ -160,6 +161,7 @@ static msgpack_sbuffer *sbuff_data;
 static void free_conn_data(struct conn_data *conn_data) {
 	TRACE_FUNC;
 	free(conn_data->ipaddr_str);
+	free(conn_data->local_ipaddr_str);
 	free(conn_data->token_buff);
 	free(conn_data->log_user);
 	event_free(conn_data->inac_tout_ev);
@@ -181,17 +183,23 @@ static int alloc_conn_data(struct conn_data *conn_data) {
 	conn_data->ipaddr_str = malloc(sizeof(*conn_data->ipaddr_str) * IP_ADDR_LEN);
 	if (conn_data->ipaddr_str == NULL)
 		goto err4;
+	conn_data->local_ipaddr_str = malloc(sizeof(*conn_data->local_ipaddr_str) * IP_ADDR_LEN);
+	if (conn_data->local_ipaddr_str == NULL)
+		goto err5;
 	conn_data->token_buff = malloc(sizeof(*conn_data->token_buff) * TOKEN_BUFF_LEN);
 	if (conn_data->token_buff == NULL)
-		goto err5;
+		goto err6;
 	conn_data->log_user = malloc(sizeof(*conn_data->log_user) * LOGIN_USER_LEN);
 	if (conn_data->log_user == NULL)
-		goto err6;
+		goto err7;
 	conn_data->fd = -1;
 	return 0;
 
-	err6:
+	err7:
 	free(conn_data->token_buff);
+
+	err6:
+	free(conn_data->local_ipaddr_str);
 
 	err5:
 	free(conn_data->ipaddr_str);
@@ -389,6 +397,7 @@ static void report_connect(struct conn_data *conn_data) {
 		.ts = time(NULL),
 		.type = TYPE,
 		.ip = conn_data->ipaddr_str,
+		.local_ip = conn_data->local_ipaddr_str,
 		.action = CONNECT_EV,
 		.data = NULL,
 		.data_len = 0,
@@ -402,6 +411,7 @@ static void report_invalid(struct conn_data *conn_data) {
 		.ts = time(NULL),
 		.type = TYPE,
 		.ip = conn_data->ipaddr_str,
+		.local_ip = conn_data->local_ipaddr_str,
 		.action = INVALID_EV,
 		.data = NULL,
 		.data_len = 0,
@@ -441,6 +451,7 @@ static void report_login_login(struct conn_data *conn_data) {
 		.ts = time(NULL),
 		.type = TYPE,
 		.ip = conn_data->ipaddr_str,
+		.local_ip = conn_data->local_ipaddr_str,
 		.data = data,
 		.action = LOGIN_EV,
 		.data_len = sizeof(data) / sizeof(*data),
@@ -1058,10 +1069,12 @@ static void on_accept(int listen_fd, short ev, void *arg) {
 		error("Couldn't accept connection on socket with FD: %d", listen_fd);
 		return;
 	}
+
 	if (setnonblock(conn_fd) != 0) {
 		close(conn_fd);
 		return;
 	}
+
 	struct conn_data *conn_data = get_conn_data(conn_fd);
 	if (conn_data == NULL) {
 		info("No free conn_data slots. Refusing connection.");
@@ -1069,11 +1082,27 @@ static void on_accept(int listen_fd, short ev, void *arg) {
 		close(conn_fd);
 		return;
 	}
+
 	if (sockaddr2str(&conn_addr, conn_data->ipaddr_str) != 0) {
 		exit_code = EXIT_FAILURE;
 		event_base_loopbreak(ev_base);
 		return;
 	}
+
+	struct sockaddr_storage local_addr;
+	socklen_t local_addr_len = sizeof(local_addr);
+	if (getsockname(conn_fd, (struct sockaddr *)&local_addr, &local_addr_len) == -1) {
+		info("Cannot get local IP address");
+		close(conn_fd);
+		return;
+	}
+
+	if (sockaddr2str(&local_addr, conn_data->local_ipaddr_str) != 0) {
+		exit_code = EXIT_FAILURE;
+		event_base_loopbreak(ev_base);
+		return;
+	}
+
 	char *mesg;
 	concat_str(&mesg, 3, WELCOME_RESP_PART1, host_name, WELCOME_RESP_PART2);
 	int ret = send_resp(conn_data, mesg);

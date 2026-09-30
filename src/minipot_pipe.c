@@ -1,6 +1,6 @@
 /*
  *  Turris:Sentinel Minipot - password Honeypot
- *  Copyright (C) 2019-2020 CZ.NIC z.s.p.o. (https://www.nic.cz/)
+ *  Copyright (C) 2019-2026 CZ.NIC z.s.p.o. (https://www.nic.cz/)
  *
  *  This program is free software: you can redistribute it and/or modify
  *  it under the terms of the GNU General Public License as published by
@@ -66,6 +66,10 @@ int check_sentinel_msg(const struct sentinel_msg *msg) {
 		error("Proxy message has invalid ip field");
 		return -1;
 	}
+	if (!msg->local_ip || strlen(msg->local_ip) == 0) {
+		error("Proxy message has invalid local_ip field");
+		return -1;
+	}
 	if (!msg->action || strlen(msg->action) == 0) {
 		error("Proxy message has invalid action field");
 		return -1;
@@ -89,7 +93,7 @@ int check_sentinel_msg(const struct sentinel_msg *msg) {
 		}
 	}
 	return 0;
-} 
+}
 
 #define PACK_STR(packer, str) do { \
 	msgpack_pack_str(packer, strlen(str));\
@@ -105,15 +109,17 @@ int pack_sentinel_msg(msgpack_sbuffer *sbuff, msgpack_sbuffer *sbuff_data,
 	if (check_sentinel_msg(msg))
 		return -1;
 
-	msgpack_packer packer;	
+	msgpack_packer packer;
 	msgpack_packer_init(&packer, sbuff, msgpack_sbuffer_write);
-	msgpack_pack_map(&packer, msg->data_len > 0 ? 5 : 4);
+	msgpack_pack_map(&packer, msg->data_len > 0 ? 6 : 5);
 	PACK_STR(&packer, "ts");
 	msgpack_pack_long_long(&packer, msg->ts);
 	PACK_STR(&packer, "type");
 	PACK_STR(&packer, msg->type);
 	PACK_STR(&packer, "ip");
 	PACK_STR(&packer, msg->ip);
+	PACK_STR(&packer, "local_ip");
+	PACK_STR(&packer, msg->local_ip);
 	PACK_STR(&packer, "action");
 	PACK_STR(&packer, msg->action);
 

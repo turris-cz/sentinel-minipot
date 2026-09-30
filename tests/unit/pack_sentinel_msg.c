@@ -33,26 +33,29 @@ static void teardown() {
 
 START_TEST(pack_test01) {
 	struct sentinel_msg msg = {
-		.action = "a", .ip = "b", .type = "q", .ts = 1,
+		.action = "a", .ip = "b", .local_ip = "c", .type = "q", .ts = 1,
 	};
 	ck_assert_int_eq(pack_sentinel_msg(&sbuff, &sbuff_data, &msg), 0);
 	ck_assert_int_eq(msgpack_unpack_next(&upkd, sbuff.data, sbuff.size, NULL),
 		MSGPACK_UNPACK_SUCCESS);
 	msgpack_object r = upkd.data;
 	ck_assert_int_eq(r.type, MSGPACK_OBJECT_MAP);
-	ck_assert_int_eq(r.via.map.size, 4);
+	ck_assert_int_eq(r.via.map.size, 5);
 	ck_assert_msgpack_str(r.via.map.ptr[0].key, "ts");
 	ck_assert_msgpack_uint(r.via.map.ptr[0].val, msg.ts);
 
 	ck_assert_msgpack_str(r.via.map.ptr[1].key, "type");
 	ck_assert_msgpack_str(r.via.map.ptr[1].val, msg.type);
-	
+
 	ck_assert_msgpack_str(r.via.map.ptr[2].key, "ip");
 	ck_assert_msgpack_str(r.via.map.ptr[2].val, msg.ip);
-	
-	ck_assert_msgpack_str(r.via.map.ptr[3].key, "action");
-	ck_assert_msgpack_str(r.via.map.ptr[3].val, msg.action);
-	
+
+	ck_assert_msgpack_str(r.via.map.ptr[3].key, "local_ip");
+	ck_assert_msgpack_str(r.via.map.ptr[3].val, msg.local_ip);
+
+	ck_assert_msgpack_str(r.via.map.ptr[4].key, "action");
+	ck_assert_msgpack_str(r.via.map.ptr[4].val, msg.action);
+
 } END_TEST
 
 
@@ -61,7 +64,7 @@ START_TEST(pack_test02) {
 		.key = STR, .key_len = strlen(STR), .val = STR, .val_len = strlen(STR)
 	};
 	struct sentinel_msg msg = {
-		.action = "a", .ip = "b", .type = "q", .ts = 1, .data = &data,
+		.action = "a", .ip = "b", .local_ip = "c", .type = "q", .ts = 1, .data = &data,
 		.data_len = 1
 	};
 	ck_assert_int_eq(pack_sentinel_msg(&sbuff, &sbuff_data, &msg), 0);
@@ -69,25 +72,28 @@ START_TEST(pack_test02) {
 		MSGPACK_UNPACK_SUCCESS);
 	msgpack_object r = upkd.data;
 	ck_assert_int_eq(r.type, MSGPACK_OBJECT_MAP);
-	ck_assert_int_eq(r.via.map.size, 5);
+	ck_assert_int_eq(r.via.map.size, 6);
 	ck_assert_msgpack_str(r.via.map.ptr[0].key, "ts");
 	ck_assert_msgpack_uint(r.via.map.ptr[0].val, msg.ts);
 
 	ck_assert_msgpack_str(r.via.map.ptr[1].key, "type");
 	ck_assert_msgpack_str(r.via.map.ptr[1].val, msg.type);
-	
+
 	ck_assert_msgpack_str(r.via.map.ptr[2].key, "ip");
 	ck_assert_msgpack_str(r.via.map.ptr[2].val, msg.ip);
-	
-	ck_assert_msgpack_str(r.via.map.ptr[3].key, "action");
-	ck_assert_msgpack_str(r.via.map.ptr[3].val, msg.action);
 
-	ck_assert_msgpack_str(r.via.map.ptr[4].key, "data");
-	ck_assert_int_eq(r.via.map.ptr[4].val.type, MSGPACK_OBJECT_MAP);
-	ck_assert_int_eq(r.via.map.ptr[4].val.via.map.size, 1);
-	ck_assert_msgpack_str(r.via.map.ptr[4].val.via.map.ptr[0].key, STR);
-	ck_assert_msgpack_str(r.via.map.ptr[4].val.via.map.ptr[0].val, STR);
-	
+	ck_assert_msgpack_str(r.via.map.ptr[3].key, "local_ip");
+	ck_assert_msgpack_str(r.via.map.ptr[3].val, msg.local_ip);
+
+	ck_assert_msgpack_str(r.via.map.ptr[4].key, "action");
+	ck_assert_msgpack_str(r.via.map.ptr[4].val, msg.action);
+
+	ck_assert_msgpack_str(r.via.map.ptr[5].key, "data");
+	ck_assert_int_eq(r.via.map.ptr[5].val.type, MSGPACK_OBJECT_MAP);
+	ck_assert_int_eq(r.via.map.ptr[5].val.via.map.size, 1);
+	ck_assert_msgpack_str(r.via.map.ptr[5].val.via.map.ptr[0].key, STR);
+	ck_assert_msgpack_str(r.via.map.ptr[5].val.via.map.ptr[0].val, STR);
+
 
 } END_TEST
 
@@ -96,7 +102,7 @@ START_TEST(pack_test03) {
 		.key = STR, .key_len = strlen(STR), .val = NULL, .val_len = 0
 	};
 	struct sentinel_msg msg = {
-		.action = "a", .ip = "b", .type = "q", .ts = 1, .data = &data,
+		.action = "a", .ip = "b", .local_ip = "c", .type = "q", .ts = 1, .data = &data,
 		.data_len = 1
 	};
 	ck_assert_int_eq(pack_sentinel_msg(&sbuff, &sbuff_data, &msg), 0);
@@ -104,25 +110,28 @@ START_TEST(pack_test03) {
 		MSGPACK_UNPACK_SUCCESS);
 	msgpack_object r = upkd.data;
 	ck_assert_int_eq(r.type, MSGPACK_OBJECT_MAP);
-	ck_assert_int_eq(r.via.map.size, 5);
+	ck_assert_int_eq(r.via.map.size, 6);
 	ck_assert_msgpack_str(r.via.map.ptr[0].key, "ts");
 	ck_assert_msgpack_uint(r.via.map.ptr[0].val, msg.ts);
 
 	ck_assert_msgpack_str(r.via.map.ptr[1].key, "type");
 	ck_assert_msgpack_str(r.via.map.ptr[1].val, msg.type);
-	
+
 	ck_assert_msgpack_str(r.via.map.ptr[2].key, "ip");
 	ck_assert_msgpack_str(r.via.map.ptr[2].val, msg.ip);
-	
-	ck_assert_msgpack_str(r.via.map.ptr[3].key, "action");
-	ck_assert_msgpack_str(r.via.map.ptr[3].val, msg.action);
 
-	ck_assert_msgpack_str(r.via.map.ptr[4].key, "data");
-	ck_assert_int_eq(r.via.map.ptr[4].val.type, MSGPACK_OBJECT_MAP);
-	ck_assert_int_eq(r.via.map.ptr[4].val.via.map.size, 1);
-	ck_assert_msgpack_str(r.via.map.ptr[4].val.via.map.ptr[0].key, STR);
-	ck_assert_msgpack_str(r.via.map.ptr[4].val.via.map.ptr[0].val, "");
-	
+	ck_assert_msgpack_str(r.via.map.ptr[3].key, "local_ip");
+	ck_assert_msgpack_str(r.via.map.ptr[3].val, msg.local_ip);
+
+	ck_assert_msgpack_str(r.via.map.ptr[4].key, "action");
+	ck_assert_msgpack_str(r.via.map.ptr[4].val, msg.action);
+
+	ck_assert_msgpack_str(r.via.map.ptr[5].key, "data");
+	ck_assert_int_eq(r.via.map.ptr[5].val.type, MSGPACK_OBJECT_MAP);
+	ck_assert_int_eq(r.via.map.ptr[5].val.via.map.size, 1);
+	ck_assert_msgpack_str(r.via.map.ptr[5].val.via.map.ptr[0].key, STR);
+	ck_assert_msgpack_str(r.via.map.ptr[5].val.via.map.ptr[0].val, "");
+
 } END_TEST
 
 START_TEST(pack_test04) {
@@ -131,7 +140,7 @@ START_TEST(pack_test04) {
 		{.key = STR, .key_len = strlen(STR), .val = STR, .val_len = strlen(STR)},
 	};
 	struct sentinel_msg msg = {
-		.action = "a", .ip = "b", .type = "q", .ts = 1, .data = data,
+		.action = "a", .ip = "b", .local_ip = "c", .type = "q", .ts = 1, .data = data,
 		.data_len = 2
 	};
 	ck_assert_int_eq(pack_sentinel_msg(&sbuff, &sbuff_data, &msg), 0);
@@ -139,27 +148,30 @@ START_TEST(pack_test04) {
 		MSGPACK_UNPACK_SUCCESS);
 	msgpack_object r = upkd.data;
 	ck_assert_int_eq(r.type, MSGPACK_OBJECT_MAP);
-	ck_assert_int_eq(r.via.map.size, 5);
+	ck_assert_int_eq(r.via.map.size, 6);
 	ck_assert_msgpack_str(r.via.map.ptr[0].key, "ts");
 	ck_assert_msgpack_uint(r.via.map.ptr[0].val, msg.ts);
 
 	ck_assert_msgpack_str(r.via.map.ptr[1].key, "type");
 	ck_assert_msgpack_str(r.via.map.ptr[1].val, msg.type);
-	
+
 	ck_assert_msgpack_str(r.via.map.ptr[2].key, "ip");
 	ck_assert_msgpack_str(r.via.map.ptr[2].val, msg.ip);
-	
-	ck_assert_msgpack_str(r.via.map.ptr[3].key, "action");
-	ck_assert_msgpack_str(r.via.map.ptr[3].val, msg.action);
 
-	ck_assert_msgpack_str(r.via.map.ptr[4].key, "data");
-	ck_assert_int_eq(r.via.map.ptr[4].val.type, MSGPACK_OBJECT_MAP);
-	ck_assert_int_eq(r.via.map.ptr[4].val.via.map.size, 2);
-	ck_assert_msgpack_str(r.via.map.ptr[4].val.via.map.ptr[0].key, STR);
-	ck_assert_msgpack_str(r.via.map.ptr[4].val.via.map.ptr[0].val, STR);
-	ck_assert_msgpack_str(r.via.map.ptr[4].val.via.map.ptr[1].key, STR);
-	ck_assert_msgpack_str(r.via.map.ptr[4].val.via.map.ptr[1].val, STR);
-	
+	ck_assert_msgpack_str(r.via.map.ptr[3].key, "local_ip");
+	ck_assert_msgpack_str(r.via.map.ptr[3].val, msg.local_ip);
+
+	ck_assert_msgpack_str(r.via.map.ptr[4].key, "action");
+	ck_assert_msgpack_str(r.via.map.ptr[4].val, msg.action);
+
+	ck_assert_msgpack_str(r.via.map.ptr[5].key, "data");
+	ck_assert_int_eq(r.via.map.ptr[5].val.type, MSGPACK_OBJECT_MAP);
+	ck_assert_int_eq(r.via.map.ptr[5].val.via.map.size, 2);
+	ck_assert_msgpack_str(r.via.map.ptr[5].val.via.map.ptr[0].key, STR);
+	ck_assert_msgpack_str(r.via.map.ptr[5].val.via.map.ptr[0].val, STR);
+	ck_assert_msgpack_str(r.via.map.ptr[5].val.via.map.ptr[1].key, STR);
+	ck_assert_msgpack_str(r.via.map.ptr[5].val.via.map.ptr[1].val, STR);
+
 } END_TEST
 
 
