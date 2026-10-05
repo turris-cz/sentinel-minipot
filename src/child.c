@@ -69,14 +69,14 @@ static int bind_to_port(int fd, uint16_t port) {
 	return 0;
 }
 
-static int drop_priviledges(const char *username) {
+static int drop_privileges(const char *username) {
 	TRACE_FUNC;
 	if (geteuid()) {
-		info("running under non priviledged user");
+		info("running under non privileged user");
 		if (prctl(PR_SET_NO_NEW_PRIVS, 1, 0, 0, 0))
 			goto err;
 	} else {
-		info("running under privildged user, switching to user: %s", username);
+		info("running under privileged user, switching to user: %s", username);
 		// Chroot and change user and group only if we are root
 		struct passwd *user = getpwnam(username);
 		if (!user || chroot("/var/empty") || chdir("/") ||
@@ -89,7 +89,7 @@ static int drop_priviledges(const char *username) {
 	return 0;
 	
 	err:
-	error("Couldn't drop priviledges");
+	error("Couldn't drop privileges");
 	return -1;
 }
 
@@ -99,7 +99,7 @@ int handle_child(struct service_data *data) {
 	close(data->pipe[0]); // close pipe read end
 	int exit_code = EXIT_SUCCESS;
 	int listen_fd = -1;
-	if (drop_priviledges(data->user)
+	if (drop_privileges(data->user)
 		|| setup_sock(&listen_fd)
 		|| bind_to_port(listen_fd, data->port)) {
 		exit_code = EXIT_FAILURE;

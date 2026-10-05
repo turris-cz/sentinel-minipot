@@ -31,7 +31,7 @@ static const char doc[] =
 	"Turris Sentinel Minipot - minimal honeypot\n"
 	"It collects authentication data by emulating various network aplication services.";
 static struct argp_option options[] = {
-	{"user", 'u', "USER", 0, "User to drop priviledges", 0},
+	{"user", 'u', "USER", 0, "User to drop privileges", 0},
 	{"topic", 't', "TOPIC", 0, "Topic for communication with proxy", 0},
 	{"telnet", 'T', "TELNET_PORT", 0, "Port for Telnet minipot", 0},
 	{"socket", 's', "SOCKET", 0, "Local socket for interprocess communication", 0},
